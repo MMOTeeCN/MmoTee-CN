@@ -2,6 +2,10 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include <new>
+#include <string>
+#include <unordered_map>
+#include <functional>
+
 #include <base/math.h>
 #include <engine/shared/config.h>
 #include <engine/map.h>
@@ -370,36 +374,29 @@ void CGameContext::AddVoteMenu_Localization(int To, int MenuID, int Type, const 
 		{
 			Buffer.clear();
 			Server()->Localization()->Format_VL(Buffer, m_apPlayers[i]->GetLanguage(), pText, VarArgs);
-
-			if(Type == MENUONLY)
-			{
-				char Buf[8];
-				str_format(Buf, sizeof(Buf), "menu%d", MenuID);
-				AddVote(Buffer.buffer(), Buf, i);
-			}
-			else if(Type == SETTINGSONLY)
-			{
-				char Buf[8];
-				str_format(Buf, sizeof(Buf), "set%d", MenuID);
-				AddVote(Buffer.buffer(), Buf, i);					
-			}
-			else if(Type == BUYITEMONLY)
-			{
-				char Buf[8];
-				str_format(Buf, sizeof(Buf), "bon%d", MenuID);
-				AddVote(Buffer.buffer(), Buf, i);				
-			}
-			else if(Type == SELLITEMWORK)
-			{
-				char Buf[8];
-				str_format(Buf, sizeof(Buf), "seli%d", MenuID);
-				AddVote(Buffer.buffer(), Buf, i);				
-			}
-			else if(Type == CRAFTONLY)
-			{
-				char Buf[8];
-				str_format(Buf, sizeof(Buf), "cra%d", MenuID);
-				AddVote(Buffer.buffer(), Buf, i);				
+			char Buf[8];
+			switch (Type) {		
+				case MENUONLY:
+					str_format(Buf, sizeof(Buf), "menu%d", MenuID);
+					AddVote(Buffer.buffer(), Buf, i);
+					break;
+				case SETTINGSONLY:
+					str_format(Buf, sizeof(Buf), "set%d", MenuID);
+					AddVote(Buffer.buffer(), Buf, i);
+					break;
+				case BUYITEMONLY:
+					str_format(Buf, sizeof(Buf), "bon%d", MenuID);
+					AddVote(Buffer.buffer(), Buf, i);
+					break;
+				case SELLITEMWORK:
+					str_format(Buf, sizeof(Buf), "seli%d", MenuID);
+					AddVote(Buffer.buffer(), Buf, i);
+					break;
+				case CRAFTONLY:
+					str_format(Buf, sizeof(Buf), "cra%d", MenuID);
+					AddVote(Buffer.buffer(), Buf, i);	
+					break;
+				default: dbg_msg("sys", "Error value %d in %s:%d", Type, __FILE__, __LINE__); break;
 			}
 		}
 	}
@@ -482,7 +479,6 @@ void CGameContext::SendGuide(int ClientID, int BossType)
 		return;
 	
 	int arghealth = 0;
-	//const char* argtext = "null";
 	const char* pLanguage = m_apPlayers[ClientID]->GetLanguage();
 	
 	dynamic_string Buffer;		
@@ -491,13 +487,11 @@ void CGameContext::SendGuide(int ClientID, int BossType)
 		if(!g_Config.m_SvCityStart)
 		{
 			arghealth = 500;
-			//argtext = "Healer";
 			Server()->Localization()->Format_L(Buffer, pLanguage, _("武器:霰弹枪&火箭炮 射速:一般\n奖励:\n- 钱袋 x100-300\n- 5% - 合成用物品\n- 20% - 合成用物品盒子"), NULL);
 		}
 		else if(g_Config.m_SvCityStart == 1)
 		{
 			arghealth = 1000;
-			//argtext = "All";
 			Server()->Localization()->Format_L(Buffer, pLanguage, _("武器:霰弹枪&火箭炮 射速:快\n奖励:\n- 钱袋 x300-500\n- 5% - 合成用物品\n- 20% - 合成用物品盒子"), NULL);
 		}
 	}
@@ -606,10 +600,9 @@ void CGameContext::SendBroadcast_LStat(int To, int Priority, int LifeSpan, int T
 		case NOTWEAPON:  
 			Server()->Localization()->Format_L(Buffer, pLanguage, _("你需要购买该武器才能拾取该武器的弹药!"), NULL), Buffer.append("\n");
 			break;
-		case INADDCEXP:  
-		{
+		case INADDCEXP:
 			Server()->Localization()->Format_L(Buffer, pLanguage, _("经验 +{int:point}. 公会 +{int:struct}"), "point", &Size, "struct", &Size2, NULL), Buffer.append("\n");
-		}	break;
+			break;
 		case INANTIPVP:
 			Server()->Localization()->Format_L(Buffer, pLanguage, _("这里是禁止PVP的区域."), NULL),	Buffer.append("\n");
 			break; 
@@ -781,23 +774,18 @@ void CGameContext::BossTick()
 			
 			for(int i = 0; i < MAX_NOBOT; ++i)
 			{
-				if(m_apPlayers[i])
+				if(m_apPlayers[i] && m_apPlayers[i]->m_InBossed)
 				{
-					if(m_apPlayers[i]->m_InBossed)
-					{
-						m_apPlayers[i]->m_InBossed = false;
-						if(m_apPlayers[i]->GetCharacter())
-							m_apPlayers[i]->GetCharacter()->Die(i, WEAPON_WORLD);
-					}
+					m_apPlayers[i]->m_InBossed = false;
+					if(m_apPlayers[i]->GetCharacter()) m_apPlayers[i]->GetCharacter()->Die(i, WEAPON_WORLD);
 				}
-			}	
+			}
 		}
-		if(m_WinWaitBoss == 950)
-			DeleteBotBoss();	
+		else if(m_WinWaitBoss == 950)
+			DeleteBotBoss();
+		return;
 	}
-	
-	// таймер ожидания игроков для рейда
-	if(m_BossStartTick)
+	else if(m_BossStartTick)
 	{		
 		m_BossStartTick--;
 		if(!GetBossCount())
@@ -821,10 +809,9 @@ void CGameContext::BossTick()
 			int CountBoss = GetBossCount();
 			SendChatTarget_Localization(-1, CHATCATEGORY_DEFAULT, _("对Boss战开始了. 玩家数量:{int:num}"), "num", &CountBoss, NULL);	
 		}
+		return;
 	}
-
-	// если комната босса активна и игроков меньше или равно 0, выдаем что босс проебан
-	if(m_BossStart && !GetBossCount() && !m_WinWaitBoss)
+	else if(m_BossStart && !GetBossCount() && !m_WinWaitBoss)
 	{
 		m_BossStartTick = 0;
 		m_BossStart = false;
@@ -833,6 +820,7 @@ void CGameContext::BossTick()
 		
 		m_BossType = 0;
 		DeleteBotBoss();
+		return;
 	}
 }
 
@@ -1081,9 +1069,9 @@ void CGameContext::OnTick()
 		SendChatTarget_Localization(-1, CHATCATEGORY_DEFAULT, "汉化:MC_TYH、Ninecloud及MMOTEE全体国服玩家", NULL);
 		SendChatTarget_Localization(-1, CHATCATEGORY_DEFAULT, "地图制作:天际, 卖鱼强",NULL);
 	}
-	if(Server()->Tick() % (1 * Server()->TickSpeed() * 360) == 0 && g_Config.m_SvLoginControl)
+	if(Server()->Tick() % (1 * Server()->TickSpeed() * 180) == 0 && g_Config.m_SvLoginControl)
 	{
-		Server()->UpdateOffline();
+		Server()->UpdateOffline(true);
 	}
 	AreaTick();
 	BossTick();
@@ -1162,7 +1150,6 @@ void CGameContext::OnClientConnected(int ClientID)
 void CGameContext::OnClientDrop(int ClientID, int Type, const char *pReason)
 {
 	if(g_Config.m_SvLoginControl) Server()->SyncOffline(ClientID);
-	//dbg_msg("ustatus","syncoffline");
 	m_pController->OnClientDrop(ClientID, Type);
 	
 	m_apPlayers[ClientID]->OnDisconnect(Type, pReason);
@@ -1175,7 +1162,6 @@ void CGameContext::OnClientDrop(int ClientID, int Type, const char *pReason)
 		if(m_apPlayers[i] && m_apPlayers[i]->m_SpectatorID == ClientID)
 			m_apPlayers[i]->m_SpectatorID = SPEC_FREEVIEW;
 	}
-
 }
 
 void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
@@ -1196,1376 +1182,249 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 
 	if(Server()->ClientIngame(ClientID))
 	{
-		if(MsgID == NETMSGTYPE_CL_SAY)
+		switch (MsgID)
 		{
-			if(g_Config.m_SvSpamprotection && pPlayer->m_LastChat && pPlayer->m_LastChat+Server()->TickSpeed() > Server()->Tick())
-				return;
-
-
-			CNetMsg_Cl_Say *pMsg = (CNetMsg_Cl_Say *)pRawMsg;
-			int Team = CGameContext::CHAT_ALL;
-			if(pMsg->m_Team)
+			case NETMSGTYPE_CL_SAY:
 			{
-				if(pPlayer->GetTeam() == TEAM_SPECTATORS) Team = CGameContext::CHAT_SPEC;
-				else Team = CGameContext::CHAT_BLUE;
-			}
+				if(g_Config.m_SvSpamprotection && pPlayer->m_LastChat && pPlayer->m_LastChat+Server()->TickSpeed() > Server()->Tick())
+					return;
+				auto *pMsg = (CNetMsg_Cl_Say *)pRawMsg;
+				int Team = CGameContext::CHAT_ALL;
+				if(pMsg->m_Team)
+				{
+					if(pPlayer->GetTeam() == TEAM_SPECTATORS) Team = CGameContext::CHAT_SPEC;
+					else Team = CGameContext::CHAT_BLUE;
+				}
+				
+				// trim right and set maximum length to 271 utf8-characters
+				int Length = 0;
+				const char *p = pMsg->m_pMessage;
+				const char *pEnd = 0;
+				while(*p)
+				{
+					const char *pStrOld = p;
+					int Code = str_utf8_decode(&p);
+
+					// check if unicode is not empty
+					if(Code > 0x20 && Code != 0xA0 && Code != 0x034F && (Code < 0x2000 || Code > 0x200F) && (Code < 0x2028 || Code > 0x202F) &&
+						(Code < 0x205F || Code > 0x2064) && (Code < 0x206A || Code > 0x206F) && (Code < 0xFE00 || Code > 0xFE0F) &&
+						Code != 0xFEFF && (Code < 0xFFF9 || Code > 0xFFFC))
+					{
+						pEnd = 0;
+					}
+					else if(pEnd == 0)
+						pEnd = pStrOld;
+
+					if(++Length >= 270)
+					{
+						*(const_cast<char *>(p)) = 0;
+						break;
+					}
+				}
+				if(pEnd != 0)
+					*(const_cast<char *>(pEnd)) = 0;
+
+				// drop empty and auto created spam messages (more than 16 characters per second)
+				if(Length == 0 || (g_Config.m_SvSpamprotection && pPlayer->m_LastChat && pPlayer->m_LastChat+Server()->TickSpeed()*((15+Length)/16) > Server()->Tick()))
+					return;
+
+				pPlayer->m_LastChat = Server()->Tick();
 			
-			// trim right and set maximum length to 271 utf8-characters
-			int Length = 0;
-			const char *p = pMsg->m_pMessage;
-			const char *pEnd = 0;
-			while(*p)
- 			{
-				const char *pStrOld = p;
-				int Code = str_utf8_decode(&p);
-
-				// check if unicode is not empty
-				if(Code > 0x20 && Code != 0xA0 && Code != 0x034F && (Code < 0x2000 || Code > 0x200F) && (Code < 0x2028 || Code > 0x202F) &&
-					(Code < 0x205F || Code > 0x2064) && (Code < 0x206A || Code > 0x206F) && (Code < 0xFE00 || Code > 0xFE0F) &&
-					Code != 0xFEFF && (Code < 0xFFF9 || Code > 0xFFFC))
-				{
-					pEnd = 0;
-				}
-				else if(pEnd == 0)
-					pEnd = pStrOld;
-
-				if(++Length >= 270)
-				{
-					*(const_cast<char *>(p)) = 0;
-					break;
-				}
- 			}
-			if(pEnd != 0)
-				*(const_cast<char *>(pEnd)) = 0;
-
-			// drop empty and autocreated spam messages (more than 16 characters per second)
-			if(Length == 0 || (g_Config.m_SvSpamprotection && pPlayer->m_LastChat && pPlayer->m_LastChat+Server()->TickSpeed()*((15+Length)/16) > Server()->Tick()))
-				return;
-
-			pPlayer->m_LastChat = Server()->Tick();
-		
-		
-			if(str_comp_num(pMsg->m_pMessage, "/msg ", 5) == 0)
-			{
-				PrivateMessage(pMsg->m_pMessage+5, ClientID, (Team != CGameContext::CHAT_ALL));
-			}
-			else if(str_comp_num(pMsg->m_pMessage, "/w ", 3) == 0)
-			{
-				PrivateMessage(pMsg->m_pMessage+3, ClientID, (Team != CGameContext::CHAT_ALL));
-			}
-			else if(pMsg->m_pMessage[0]=='/')
-				pPlayer->m_pChatCmd->ChatCmd(pMsg);
-			else
-				SendChat(ClientID, Team, pMsg->m_pMessage);		
-		}
-		else if(MsgID == NETMSGTYPE_CL_CALLVOTE)
-		{
-			CNetMsg_Cl_CallVote const *pMsg = (CNetMsg_Cl_CallVote *)pRawMsg;
-			const char *pReason = pMsg->m_Reason[0] ? pMsg->m_Reason : "No reason given";
 			
-			if(str_comp_nocase(pMsg->m_Type, "kick") == 0)
-			{
-				int KickID = str_toint(pMsg->m_Value);
-				if(KickID < 0 || KickID >= MAX_NOBOT || !m_apPlayers[KickID])
+				if(str_comp_num(pMsg->m_pMessage, "/msg ", 5) == 0)
 				{
-					SendChatTarget(ClientID, "Invalid client id to kick");
-					return;
+					PrivateMessage(pMsg->m_pMessage+5, ClientID, (Team != CGameContext::CHAT_ALL));
 				}
-				if(KickID == ClientID)
+				else if(str_comp_num(pMsg->m_pMessage, "/w ", 3) == 0)
 				{
-					SendChatTarget(ClientID, "你不能把你自己踢出房间");
-					return;
+					PrivateMessage(pMsg->m_pMessage+3, ClientID, (Team != CGameContext::CHAT_ALL));
 				}
-				if(Server()->IsAuthed(KickID))
-				{
-					SendChatTarget(ClientID, "你不能把管理员踢出房间");
-					char aBufKick[128];
-					str_format(aBufKick, sizeof(aBufKick), "'%s' 投票把你踢出房间", Server()->ClientName(ClientID));
-					SendChatTarget(KickID, aBufKick);
-					return;
-				}
+				else if(pMsg->m_pMessage[0]=='/')
+					pPlayer->m_pChatCmd->ChatCmd(pMsg);
+				else
+					SendChat(ClientID, Team, pMsg->m_pMessage);	
+				
+				break;
 			}
-			else
+			case NETMSGTYPE_CL_CALLVOTE:
 			{
-				char aDesc[VOTE_DESC_LENGTH] = {0};
-				char aCmd[VOTE_CMD_LENGTH] = {0};
+				CNetMsg_Cl_CallVote const *pMsg = (CNetMsg_Cl_CallVote *)pRawMsg;
+				const char *pReason = pMsg->m_Reason[0] ? pMsg->m_Reason : "No reason given";
 
-				
-				//TODO
-				if(str_comp_nocase(pMsg->m_Type, "option") == 0)
+				if(str_comp_nocase(pMsg->m_Type, "kick") == 0)
 				{
-					for (int i = 0; i < m_PlayerVotes[ClientID].size(); ++i)
+					int KickID = str_toint(pMsg->m_Value);
+					if(KickID < 0 || KickID >= MAX_NOBOT || !m_apPlayers[KickID])
 					{
-						if(str_comp_nocase(pMsg->m_Value, m_PlayerVotes[ClientID][i].m_aDescription) == 0)
-						{
-							str_format(aDesc, sizeof(aDesc), "%s", m_PlayerVotes[ClientID][i].m_aDescription);
-							str_format(aCmd, sizeof(aCmd), "%s", m_PlayerVotes[ClientID][i].m_aCommand);
-				
-							//m_PlayerVotes[ClientID][i].data;
-						}
-					}
-				}
-
-				if(str_comp(aCmd, "null") == 0)
-					return;
-				
-				// ИНФОРМАЦИЯ ФУНКЦИИ
-				
-				else if(str_comp(aCmd, "info") == 0)
-				{
-					const char* pLanguage = m_apPlayers[ClientID]->GetLanguage();
-	
-					dynamic_string Buffer;
-					Server()->Localization()->Format_L(Buffer, pLanguage, _("All owners InfClass"), NULL); 
-					Buffer.append("\n\n");
-					Server()->Localization()->Format_L(Buffer, pLanguage, _("主要制作人员:\nNajvlad, Rem1x, Matodor, Kurosio - 原作者"), NULL); 
-					Buffer.append("\n\n");
-					Server()->Localization()->Format_L(Buffer, pLanguage, _("天际 - 修改地图\nNinecloud - 协助开发\n天上的星星 - 开发者,服务器管理"), NULL); 
-					Buffer.append("\n\n");
-	
-					SendMOTD(ClientID, Buffer.buffer());
-					return;
-				}			
-
-				else if(str_comp(aCmd, "rules") == 0)
-				{
-					SendChatTarget(ClientID, "------- {Rules} -------");
-					SendChatTarget(ClientID, "禁止使用游戏漏洞!");
-					SendChatTarget(ClientID, "禁止使用辅助性软件!");
-					SendChatTarget(ClientID, "禁止使用分身!");
-					SendChatTarget(ClientID, "禁止同时在多个服务器登录账号!");
-					SendChatTarget(ClientID, "禁止分享账号!");
-					SendChatTarget(ClientID, "禁止侮辱玩家!");
-					SendChatTarget(ClientID, "禁止进行线下交易!");
-					SendChatTarget(ClientID, "最好不要干涉别人的游戏过程!");
-					return;
-				}					
-
-				else if(str_comp(aCmd, "help") == 0)
-				{
-					const char* pLanguage = m_apPlayers[ClientID]->GetLanguage();
-	
-					dynamic_string Buffer;
-	
-					Server()->Localization()->Format_L(Buffer, pLanguage, _("你需要登录(/login)或者注册(/register)一个新的账户."), NULL); 
-					Buffer.append("\n\n");
-					Server()->Localization()->Format_L(Buffer, pLanguage, _("/register <用户名> <密码> - 创建一个新的账户"), NULL); 
-					Buffer.append("\n");
-					Server()->Localization()->Format_L(Buffer, pLanguage, _("/login <用户名> <密码> - 登录账户"), NULL); 
-					Buffer.append("\n");
-					// 鬼知道这个玩意是谁写的,翻译之前居然不检查一下
-					//Server()->Localization()->Format_L(Buffer, pLanguage, _("/logout - 注销该账户"), NULL); 
-					//Buffer.append("\n\n");
-
-					SendMOTD(ClientID, Buffer.buffer());
-					return;
-				}	
-				
-				// МЕНЮ ФУНКЦИИ
-						
-				else if(str_comp(aCmd, "back") == 0)
-				{
-					ResetVotes(ClientID, m_apPlayers[ClientID]->m_LastVotelist);
-					return;
-				}		
-												
-
-				// КЛАН ФУНКЦИИ
-				else if(str_comp(aCmd, "chouseopen") == 0)
-				{
-					if(!Server()->GetLeader(ClientID, Server()->GetClanID(ClientID)) && !Server()->GetAdmin(ClientID, Server()->GetClanID(ClientID)))
-					{
-						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("# 你不是该公会的会长或者管理员"), NULL);
+						SendChatTarget(ClientID, "Invalid client id to kick");
 						return;
 					}
-					if(Server()->SetOpenHouse(Server()->GetOwnHouse(ClientID)))
+					else if(KickID == ClientID)
 					{
-						SendChatTarget_Localization(-1, -1, _("公会 {str:name} {str:type} 了房屋!"), 
-							"name", Server()->GetClanName(Server()->GetClanID(ClientID)), "type", Server()->GetOpenHouse(Server()->GetOwnHouse(ClientID)) ? "打开" : "关闭");
+						SendChatTarget(ClientID, "你不能把你自己踢出房间");
+						return;
 					}
-					ResetVotes(ClientID, CHOUSE);
-					return;
-				}				
-
-				else if(str_comp(aCmd, "ckickoff") == 0)
+					else if(Server()->IsAuthed(KickID))
+					{
+						SendChatTarget(ClientID, "你不能把管理员踢出房间");
+						char aBufKick[128];
+						str_format(aBufKick, sizeof(aBufKick), "'%s' 投票把你踢出房间", Server()->ClientName(ClientID));
+						SendChatTarget(KickID, aBufKick);
+						return;
+					}
+				}
+				else
 				{
-					if(Server()->GetLeader(ClientID, Server()->GetClanID(ClientID)) || Server()->GetAdmin(ClientID, Server()->GetClanID(ClientID)))
-					{	
-						if(str_comp_nocase(m_apPlayers[ClientID]->m_SelectPlayer, Server()->ClientName(ClientID)) == 0)
-							return;
-						if(str_comp_nocase(m_apPlayers[ClientID]->m_SelectPlayer, Server()->LeaderName(Server()->GetClanID(ClientID))) == 0 
-							|| str_comp_nocase(m_apPlayers[ClientID]->m_SelectPlayer, Server()->AdminName(Server()->GetClanID(ClientID))) == 0)
+					char aDesc[VOTE_DESC_LENGTH] = {0};
+					char aCmd[VOTE_CMD_LENGTH] = {0};
+
+					if(str_comp_nocase(pMsg->m_Type, "option") == 0)
+					{
+						for (int i = 0; i < m_PlayerVotes[ClientID].size(); ++i)
 						{
-							SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("# 你不能把该公会的会长或者管理员踢出公会"), NULL);
-							return;
-						}
-						bool Type = false;
-						for(int i = 0; i < MAX_NOBOT; ++i)
-						{
-							if(m_apPlayers[i])
+							if(str_comp_nocase(pMsg->m_Value, m_PlayerVotes[ClientID][i].m_aDescription) == 0)
 							{
-								if(str_comp_nocase(m_apPlayers[ClientID]->m_SelectPlayer, Server()->ClientName(i)) == 0)
-									Type = true;
+								str_format(aDesc, sizeof(aDesc), "%s", m_PlayerVotes[ClientID][i].m_aDescription);
+								str_format(aCmd, sizeof(aCmd), "%s", m_PlayerVotes[ClientID][i].m_aCommand);
 							}
 						}
-					
-						if(Type) SendChatClan(Server()->GetClanID(ClientID), "会长将玩家 {str:name} 踢出了公会", "name", m_apPlayers[ClientID]->m_SelectPlayer);
-						else SendChatClan(Server()->GetClanID(ClientID), "会长将离线玩家 {str:name} 踢出了公会", "name", m_apPlayers[ClientID]->m_SelectPlayer);
-
-						Server()->ExitClanOff(ClientID, m_apPlayers[ClientID]->m_SelectPlayer);			
-						ResetVotes(ClientID, CLANLIST);
-					}
-					else
-						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("# 你不是该公会的会长或者管理员"), NULL);
-												
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "cgetleader") == 0)
-				{
-					if(Server()->GetLeader(ClientID, Server()->GetClanID(ClientID)))
-					{	
-						if(str_comp_nocase(m_apPlayers[ClientID]->m_SelectPlayer, Server()->ClientName(ClientID)) == 0)
-							return;
-						
-						bool found = false;
-						for(int i = 0; i < MAX_NOBOT; ++i){
-							if(m_apPlayers[i]){
-								if(Server()->GetClanID(i) == Server()->GetClanID(ClientID)){
-										
-									found = true;
-									SendChatTarget_Localization(i, CHATCATEGORY_DEFAULT, _("公会新的会长:{str:name}"), "name", m_apPlayers[ClientID]->m_SelectPlayer, NULL);	
-								}
-							}
-						}
-						
-						if(found)
-						{
-							Server()->ChangeLeader(Server()->GetClanID(ClientID), m_apPlayers[ClientID]->m_SelectPlayer); 
-							ResetVotes(ClientID, CLANLIST);
-							
-						}
-					}
-					else
-						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("# 你不是该公会的会长"), NULL);
-												
-					return;
-				}	
-
-				else if(str_comp(aCmd, "cgetadmin") == 0)
-				{
-					if(Server()->GetLeader(ClientID, Server()->GetClanID(ClientID)))
-					{	
-						if(str_comp_nocase(m_apPlayers[ClientID]->m_SelectPlayer, Server()->ClientName(ClientID)) == 0)
-							return;
-						
-						bool found = false;
-						for(int i = 0; i < MAX_NOBOT; ++i){
-							if(m_apPlayers[i])
-							{
-								if(Server()->GetClanID(i) == Server()->GetClanID(ClientID)){
-										
-									found = true;
-									SendChatTarget_Localization(i, CHATCATEGORY_DEFAULT, _("公会新的管理员:{str:name}"), "name", m_apPlayers[ClientID]->m_SelectPlayer, NULL);	
-								}
-							}
-						}
-						
-						if(found)
-						{
-							Server()->ChangeAdmin(Server()->GetClanID(ClientID), m_apPlayers[ClientID]->m_SelectPlayer); 
-							ResetVotes(ClientID, CLANLIST);
-							
-						}
-					}
-					else
-						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("# 你不是该公会的会长"), NULL);
-												
-					return;
-				}	
-
-				else if(str_comp(aCmd, "cremadmin") == 0)
-				{
-					if(Server()->GetLeader(ClientID, Server()->GetClanID(ClientID)))
-					{	
-						if(str_comp_nocase(m_apPlayers[ClientID]->m_SelectPlayer, Server()->ClientName(ClientID)) == 0)
-							return;
-						
-						bool found = false;
-						for(int i = 0; i < MAX_NOBOT; ++i){
-							if(m_apPlayers[i])
-							{
-								if(Server()->GetClanID(i) == Server()->GetClanID(ClientID)){
-										
-									found = true;
-									SendChatTarget_Localization(i, CHATCATEGORY_DEFAULT, _("公会原管理员 {str:name} 被罢免了!"), "name", m_apPlayers[ClientID]->m_SelectPlayer, NULL);	
-								}
-							}
-						}
-						
-						if(found)
-						{
-							Server()->ChangeAdmin(Server()->GetClanID(ClientID), "Nope"); 
-							ResetVotes(ClientID, CLANLIST);
-							
-						}
-					}
-					else
-						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("# 你不是该公会的会长"), NULL);
-												
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "cexit") == 0)
-				{
-					if(Server()->GetLeader(ClientID, Server()->GetClanID(ClientID)))
-					{
-						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("会长不能退出公会"), NULL);							
-						return;
-					}
-					ExitClan(ClientID);
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "uccount") == 0)
-				{						
-					if(Server()->GetClan(Clan::MaxMemberNum, Server()->GetClanID(ClientID)) >= 25)
-						return 	SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("人数已达到最大值"), NULL);
-
-					BuyUpgradeClan(ClientID, (m_apPlayers[ClientID]->GetNeedForUpgClan(Clan::MaxMemberNum))*4, Clan::MaxMemberNum,"MaxNum");
-					return;
-				}	
-				else if(str_comp(aCmd, "uaddexp") == 0)
-					BuyUpgradeClan(ClientID, m_apPlayers[ClientID]->GetNeedForUpgClan(Clan::ExpAdd), Clan::ExpAdd,"ExpAdd");
-
-				else if(str_comp(aCmd, "uchair") == 0)
-				{
-					if(!Server()->GetHouse(ClientID))
-						return 	SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你所在的公会没有房屋!"), NULL);
-
-					BuyUpgradeClan(ClientID, m_apPlayers[ClientID]->GetNeedForUpgClan(Clan::ChairLevel)*2, Clan::ChairLevel,"ChairHouse");
-				}
-
-				else if(str_comp(aCmd, "uspawnhouse") == 0)
-				{
-					if(!Server()->GetHouse(ClientID))
-						return 	SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你所在的公会没有房屋!"), NULL);
-
-					if(Server()->GetSpawnInClanHouse(ClientID, 0) || Server()->GetSpawnInClanHouse(ClientID, 1))
-						return;
-
-					BuyUpgradeClan(ClientID, 500000, Clan::ExpAdd,"SpawnHouse");							
-				}	
-
-				else if(str_comp(aCmd, "uaddmoney") == 0)
-					BuyUpgradeClan(ClientID, m_apPlayers[ClientID]->GetNeedForUpgClan(Clan::MoneyAdd), Clan::ExpAdd,"MoneyAdd");	
-								
-				else if(str_comp(aCmd, "cm1") == 0)
-				{
-					unsigned long int Get = 1000; 
-					if (pReason[0] && isdigit(pReason[0]))
-						Get = atoi (pReason);
-						
-					if(m_apPlayers[ClientID]->AccData.Gold < Get)				
-						Get = m_apPlayers[ClientID]->AccData.Gold;
-					
-					if(Get < 1 || Get > 100000000)
-						Get = 1000;
-					
-					if(m_apPlayers[ClientID]->AccData.Gold > 0)
-					{						
-						Server()->InitClanID(Server()->GetClanID(ClientID), PLUS, "Money", Get, true);
-
-						m_apPlayers[ClientID]->AccData.Gold -= Get;
-						m_apPlayers[ClientID]->AccData.ClanAdded += Get;
-						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你向工会捐了 {int:count} 黄金"), "count", &Get, NULL);							
-						
-						UpdateStats(ClientID);
-						ResetVotes(ClientID, AUTH);
-						Server()->GetTopClanHouse();
-						return;
-					}
-					else SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有那么多钱,小穷光蛋"), NULL);							
-					
-					return;
-				}	
-
-				// КВЕСТЫ ФУНКЦИИ -- 寻宝游戏功能? -- 任务相关
-				
-				else if(str_comp(aCmd, "passquest") == 0)
-				{
-					if(m_apPlayers[ClientID]->AccData.Quest == 1)
-					{
-						if(Server()->GetItemCount(ClientID, PIGPORNO) < QUEST1)
-							return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("任务还未完成!"), NULL);	
-						else
-						{
-							m_apPlayers[ClientID]->ExpAdd(4000);
-							m_apPlayers[ClientID]->MoneyAdd(200000);
-							m_apPlayers[ClientID]->AccData.Quest++;
-							Server()->RemItem(ClientID, 2, QUEST1, -1);
-							UpdateStats(ClientID);
-						}
-					}
-
-					if(m_apPlayers[ClientID]->AccData.Quest == 2)
-					{
-						if(Server()->GetItemCount(ClientID, PIGPORNO) < QUEST2)
-							return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("任务还未完成!"), NULL);	
-						else
-						{
-							m_apPlayers[ClientID]->ExpAdd(4000);
-							m_apPlayers[ClientID]->MoneyAdd(250000);
-							m_apPlayers[ClientID]->AccData.Quest++;
-							Server()->RemItem(ClientID, 2, QUEST2, -1);
-							UpdateStats(ClientID);
-						}
-					}
-
-					else if(m_apPlayers[ClientID]->AccData.Quest == 3)
-					{
-						if(Server()->GetItemCount(ClientID, KWAHGANDON) < QUEST3)
-							return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("任务还未完成!"), NULL);	
-						else
-						{
-							m_apPlayers[ClientID]->ExpAdd(8000);
-							m_apPlayers[ClientID]->MoneyAdd(500000);
-							m_apPlayers[ClientID]->AccData.Quest++;
-							Server()->RemItem(ClientID, 3, QUEST3, -1);
-							UpdateStats(ClientID);
-						}
-					}
-
-					else if(m_apPlayers[ClientID]->AccData.Quest == 4)
-					{
-						if(Server()->GetItemCount(ClientID, KWAHGANDON) < QUEST4)
-							return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("任务还未完成!"), NULL);	
-						else
-						{
-							m_apPlayers[ClientID]->ExpAdd(8000);
-							m_apPlayers[ClientID]->MoneyAdd(550000);
-							m_apPlayers[ClientID]->AccData.Quest++;
-							Server()->RemItem(ClientID, 3, QUEST4, -1);
-							UpdateStats(ClientID);
-						}
-					}
-
-					else if(m_apPlayers[ClientID]->AccData.Quest == 5)
-					{
-						if(Server()->GetItemCount(ClientID, KWAHGANDON) < QUEST5 || Server()->GetItemCount(ClientID, PIGPORNO) < QUEST3)
-							return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("任务还未完成!"), NULL);	
-						else
-						{
-							m_apPlayers[ClientID]->MoneyAdd(1000000);
-							m_apPlayers[ClientID]->AccData.Quest++;
-							Server()->RemItem(ClientID, KWAHGANDON, QUEST5, -1);
-							Server()->RemItem(ClientID, PIGPORNO, QUEST5, -1);
-							SendMail(ClientID, 2, EARRINGSKWAH, 1);
-							UpdateStats(ClientID);
-						}
-					}
-					else if(m_apPlayers[ClientID]->AccData.Quest == 6)
-					{
-						if(Server()->GetItemCount(ClientID, KWAHGANDON) < QUEST6 || Server()->GetItemCount(ClientID, FOOTKWAH) < QUEST6)
-							return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("任务还未完成!"), NULL);	
-						else
-						{
-							m_apPlayers[ClientID]->MoneyAdd(1050000);
-							m_apPlayers[ClientID]->AccData.Quest++;
-							Server()->RemItem(ClientID, KWAHGANDON, QUEST6, -1);
-							Server()->RemItem(ClientID, FOOTKWAH, QUEST6, -1);
-							SendMail(ClientID, 2, FORMULAWEAPON, 1);
-							SendMail(ClientID, 3, TITLEQUESTS, 1);
-							UpdateStats(ClientID);
-						}
-					}
-					ResetVotes(ClientID, QUEST);	
-					
-					return;
-				}	
-				
-				// ПРОКАЧКА ФУНКЦИИ
-
-				
-				else if(str_comp(aCmd, "uhealth") == 0)
-				{
-					int Get = 1;
-					if (pReason[0] && isdigit(pReason[0]))
-						Get = atoi (pReason);
-						
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade < Get)				
-						Get = m_apPlayers[ClientID]->AccUpgrade.Upgrade;
-					// 血量的问题不修复
-					
-					int GetSize = 0;
-					switch(m_apPlayers[ClientID]->GetClass())
-					{
-						case PLAYERCLASS_ASSASINS: GetSize = AMAXHEALTH-m_apPlayers[ClientID]->AccUpgrade.Health; break;
-						case PLAYERCLASS_BERSERK: GetSize = BMAXHEALTH-m_apPlayers[ClientID]->AccUpgrade.Health; break;
-						case PLAYERCLASS_HEALER: GetSize = HMAXHEALTH-m_apPlayers[ClientID]->AccUpgrade.Health; break;
-					}
-					
-					if(Get > GetSize)
-						Get = GetSize;
-					
-					if(Get < 1 || Get > 1000)
-						Get = 1;
-					
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade <= 0)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);	
-					
-					if((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.Health >= BMAXHEALTH + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.Health >= HMAXHEALTH + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.Health >= AMAXHEALTH + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)))
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);	
-				
-					m_apPlayers[ClientID]->AccUpgrade.Health += Get;
-					m_apPlayers[ClientID]->AccUpgrade.Upgrade -= Get;
-					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), "lv", &Get, NULL);							
-					
-					if(m_apPlayers[ClientID]->GetCharacter())
-					{
-						if(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER)
-							m_apPlayers[ClientID]->m_HealthStart += Get*50;
-						else if(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK)
-							m_apPlayers[ClientID]->m_HealthStart += Get*40;
-						else if(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS)
-							m_apPlayers[ClientID]->m_HealthStart += Get*40;
-					}
-						
-					UpdateUpgrades(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "udamage") == 0)
-				{
-					int Get = 1;
-					if (pReason[0] && isdigit(pReason[0]))
-						Get = atoi (pReason);
-						
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade < Get)				
-						Get = m_apPlayers[ClientID]->AccUpgrade.Upgrade;
-
-					int GetSize = 0;
-					switch(m_apPlayers[ClientID]->GetClass())
-					{
-						case PLAYERCLASS_ASSASINS: GetSize = AMAXDAMAGE-m_apPlayers[ClientID]->AccUpgrade.Damage; break;
-						case PLAYERCLASS_BERSERK: GetSize = BMAXDAMAGE-m_apPlayers[ClientID]->AccUpgrade.Damage; break;
-						case PLAYERCLASS_HEALER: GetSize = HMAXDAMAGE-m_apPlayers[ClientID]->AccUpgrade.Damage; break;
-					}
-					if(Get > GetSize)
-						Get = GetSize;
-					
-					if(Get < 1 || Get > 1000)
-						Get = 1;
-					
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade <= 0)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);	
-					
-					if((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.Damage >= BMAXDAMAGE + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.Damage >= HMAXDAMAGE + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.Damage >= AMAXDAMAGE + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)))
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);	
-				
-					m_apPlayers[ClientID]->AccUpgrade.Damage += Get;
-					m_apPlayers[ClientID]->AccUpgrade.Upgrade -= Get;
-					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), "lv", &Get, NULL);							
-					
-					if(((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.Damage > BMAXDAMAGE-1)||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.Damage > HMAXDAMAGE-1)||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.Damage > AMAXDAMAGE-1)) && 
-						Server()->GetItemCount(ClientID,SNAPDAMAGE) == 0)
-					{
-						//SendMail(ClientID, 4, SNAPDAMAGE, 1);	
-						GiveItem(ClientID, SNAPDAMAGE, 1);
-						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT,  ("恭喜你成功升到满级,这是你的奖励!"), NULL);
-					}
-					
-					UpdateUpgrades(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "uammo") == 0)
-				{
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade < 5)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);	
-					
-					if((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.Ammo >= BMAXAMMO + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.Ammo >= HMAXAMMO + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.Ammo >= AMAXAMMO + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)))
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);	
-									
-					m_apPlayers[ClientID]->AccUpgrade.Ammo++;
-					m_apPlayers[ClientID]->AccUpgrade.Upgrade -= 5;
-					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你成功地获得了升级"), NULL);							
-					
-					int geta = (int)(5+m_apPlayers[ClientID]->AccUpgrade.Ammo);
-					Server()->SetMaxAmmo(ClientID, INFWEAPON_GUN, geta);
-					Server()->SetMaxAmmo(ClientID, INFWEAPON_SHOTGUN, geta);
-					Server()->SetMaxAmmo(ClientID, INFWEAPON_GRENADE, geta);
-					Server()->SetMaxAmmo(ClientID, INFWEAPON_RIFLE, geta);
-					
-					UpdateUpgrades(ClientID);	
-					ResetVotes(ClientID, CLMENU);	
-					
-					return;
-				}	
-				else if(str_comp(aCmd, "uammoregen") == 0)
-				{
-					int Get = 1;
-					if (pReason[0] && isdigit(pReason[0]))
-						Get = std::stoi(pReason);
-						
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade < Get)				
-						Get = m_apPlayers[ClientID]->AccUpgrade.Upgrade;
-
-					int GetSize = 0;
-					switch(m_apPlayers[ClientID]->GetClass())
-					{
-						case PLAYERCLASS_ASSASINS: GetSize = AMAXAREGEN-m_apPlayers[ClientID]->AccUpgrade.AmmoRegen; break;
-						case PLAYERCLASS_BERSERK: GetSize = BMAXAREGEN-m_apPlayers[ClientID]->AccUpgrade.AmmoRegen; break;
-						case PLAYERCLASS_HEALER: GetSize = HMAXAREGEN-m_apPlayers[ClientID]->AccUpgrade.AmmoRegen; break;
-					}
-					if(Get > GetSize)
-						Get = GetSize;
-
-					if(Get < 1 || Get > 1000)
-						Get = 1;
-
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade <= 0)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);	
-					
-					if((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.AmmoRegen >= BMAXAREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.AmmoRegen >= HMAXAREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.AmmoRegen >= AMAXAREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)))
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);	
-									
-					m_apPlayers[ClientID]->AccUpgrade.AmmoRegen += Get;
-					m_apPlayers[ClientID]->AccUpgrade.Upgrade -= Get;
-					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), "lv", &Get, NULL);							
-					
-					if(((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.AmmoRegen > BMAXAREGEN-1)||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.AmmoRegen > HMAXAREGEN-1)||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.AmmoRegen > AMAXAREGEN-1)) &&
-						Server()->GetItemCount(ClientID, SNAPAMMOREGEN) == 0)
-					{
-						//SendMail(ClientID, 4, SNAPAMMOREGEN, 1);
-						GiveItem(ClientID, SNAPAMMOREGEN, 1);
-						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT,  ("恭喜你成功升到满级,这是你的奖励!"), NULL);
-					}
-					
-					int getar = (int)(650-m_apPlayers[ClientID]->AccUpgrade.AmmoRegen*2);
-					Server()->SetAmmoRegenTime(ClientID, INFWEAPON_GRENADE, getar);
-					Server()->SetAmmoRegenTime(ClientID, INFWEAPON_SHOTGUN, getar);
-					Server()->SetAmmoRegenTime(ClientID, INFWEAPON_RIFLE, getar);
-					
-					UpdateUpgrades(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					return;
-				}	
-				else if(str_comp(aCmd, "uhandle") == 0)
-				{
-					int Get = 1;
-					if (pReason[0] && isdigit(pReason[0]))
-						Get = atoi (pReason);
-										
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade < Get)				
-						Get = m_apPlayers[ClientID]->AccUpgrade.Upgrade;
-
-					int GetSize = 0;
-					switch(m_apPlayers[ClientID]->GetClass())
-					{
-						case PLAYERCLASS_ASSASINS: GetSize = AMAXHANDLE-m_apPlayers[ClientID]->AccUpgrade.Speed; break;
-						case PLAYERCLASS_BERSERK: GetSize = BMAXHANDLE-m_apPlayers[ClientID]->AccUpgrade.Speed; break;
-						case PLAYERCLASS_HEALER: GetSize = HMAXHANDLE-m_apPlayers[ClientID]->AccUpgrade.Speed; break;
-					}
-					if(Get > GetSize)
-						Get = GetSize;
-
-					if(Get < 1 || Get > 1000)
-						Get = 1;
-
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade <= 0)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);	
-					
-					if((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.Speed >= BMAXHANDLE) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.Speed >= HMAXHANDLE) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.Speed >= AMAXHANDLE))
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);	
-					
-					m_apPlayers[ClientID]->AccUpgrade.Speed += Get;
-					m_apPlayers[ClientID]->AccUpgrade.Upgrade -= Get;
-					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), "lv", &Get, NULL);							
-					
-					if(((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.Speed > BMAXHANDLE-1)||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.Speed > HMAXHANDLE-1)||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.Speed > AMAXHANDLE-1)) &&
-						Server()->GetItemCount(ClientID, SNAPHANDLE) == 0)
-					{
-						//SendMail(ClientID, 4, SNAPHANDLE, 1);
-						GiveItem(ClientID, SNAPHANDLE, 1);
-						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT,  ("恭喜你成功升到满级,这是你的奖励!"), NULL);
-					}
-					
-					int getsp = (int)(1000+m_apPlayers[ClientID]->AccUpgrade.Speed*30);
-					int getspg = (int)(1000+m_apPlayers[ClientID]->AccUpgrade.Speed*12);
-					Server()->SetFireDelay(ClientID, INFWEAPON_HAMMER, getsp);	
-					Server()->SetFireDelay(ClientID, INFWEAPON_GUN, getsp);
-					Server()->SetFireDelay(ClientID, INFWEAPON_SHOTGUN, getsp);
-					Server()->SetFireDelay(ClientID, INFWEAPON_GRENADE, getspg);
-					Server()->SetFireDelay(ClientID, INFWEAPON_RIFLE, getsp);
-					
-					UpdateUpgrades(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					return;
-				}	
-
-				else if(str_comp(aCmd, "umana") == 0)
-				{
-					int Get = 1;
-					if (pReason[0] && isdigit(pReason[0]))
-						Get = atoi (pReason);
-										
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade < Get)				
-						Get = m_apPlayers[ClientID]->AccUpgrade.Upgrade;
-
-					if(Get < 1 || Get > 1000)
-						Get = 1;
-
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade <= 0)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);	
-					
-					m_apPlayers[ClientID]->AccUpgrade.Mana += Get;
-					m_apPlayers[ClientID]->AccUpgrade.Upgrade -= Get;
-					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你成功地升了 {int:lv} 级"), "lv", &Get, NULL);							
-	
-					UpdateUpgrades(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					return;
-				}	
-
-				else if(str_comp(aCmd, "uspray") == 0)
-				{
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade < 10)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);	
-					
-					if((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.Spray >= BMAXSPREAD) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.Spray >= HMAXSPREAD) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.Spray >= AMAXSPREAD))
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);	
-					
-					m_apPlayers[ClientID]->AccUpgrade.Spray++;
-					m_apPlayers[ClientID]->AccUpgrade.Upgrade -= 10;
-					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), NULL);							
-					
-					UpdateUpgrades(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "uhpregen") == 0)
-				{
-					int Get = 1;
-					if (pReason[0] && isdigit(pReason[0]))
-						Get = atoi (pReason);
-
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade < Get)				
-						Get = m_apPlayers[ClientID]->AccUpgrade.Upgrade;
-
-					int GetSize = 0;
-					switch(m_apPlayers[ClientID]->GetClass())
-					{
-						case PLAYERCLASS_ASSASINS: GetSize = AMAXHPREGEN-m_apPlayers[ClientID]->AccUpgrade.HPRegen; break;
-						case PLAYERCLASS_BERSERK: GetSize = BMAXHPREGEN-m_apPlayers[ClientID]->AccUpgrade.HPRegen; break;
-						case PLAYERCLASS_HEALER: GetSize = HMAXHPREGEN-m_apPlayers[ClientID]->AccUpgrade.HPRegen; break;
-					}
-					if(Get > GetSize)
-						Get = GetSize;
-					
-					if(Get < 1 || Get > 1000)
-						Get = 1;
-					
-					if(m_apPlayers[ClientID]->AccUpgrade.Upgrade <= 0)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);	
-					
-					if((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.HPRegen >= BMAXHPREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.HPRegen >= HMAXHPREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.HPRegen >= AMAXHPREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)))
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);	
-							
-					m_apPlayers[ClientID]->AccUpgrade.HPRegen += Get;
-					m_apPlayers[ClientID]->AccUpgrade.Upgrade -= Get;
-					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), "lv", &Get, NULL);							
-					
-					UpdateUpgrades(ClientID);	
-					ResetVotes(ClientID, CLMENU);	
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "ushammerrange") == 0)
-				{
-					if(m_apPlayers[ClientID]->AccUpgrade.SkillPoint < HAMMERRANGE)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的技能点"), NULL);	
-					
-					if((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.HammerRange > 4) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.HammerRange > 5) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.HammerRange > 7))
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);	
-
-					m_apPlayers[ClientID]->AccUpgrade.HammerRange++;
-					m_apPlayers[ClientID]->AccUpgrade.SkillPoint -= HAMMERRANGE;
-					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功地提升了"), NULL);							
-						
-					UpdateUpgrades(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "upasive2") == 0)
-				{
-					if(m_apPlayers[ClientID]->AccUpgrade.SkillPoint < HAMMERRANGE)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的技能点"), NULL);	
-					
-					if((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade.Pasive2 > 4) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade.Pasive2 > 10) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade.Pasive2 > 7))
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);	
-					
-					m_apPlayers[ClientID]->AccUpgrade.Pasive2++;
-					m_apPlayers[ClientID]->AccUpgrade.SkillPoint -= HAMMERRANGE;
-					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功地提升了"), NULL);							
-						
-					UpdateUpgrades(ClientID);
-						
-					ResetVotes(ClientID, CLMENU);	
-					   
-					return;
-				}	
-
-				else if(str_comp(aCmd, "uskillwall") == 0)
-				{
-					BuySkill(ClientID, 70, SKWALL); 
-					return;
-				}	
-
-				else if(str_comp(aCmd, "uskillsword") == 0)
-				{
-					BuySkill(ClientID, 20, SSWORD);
-					return;
-				}	
-
-				else if(str_comp(aCmd, "uskillheal") == 0)
-				{
-					BuySkill(ClientID, 60, SKHEAL);
-					return;
-				}	
-				
-				// VIP 购买功能
-				else if(str_comp(aCmd, "bvip") == 0)
-				{
-					Server()->SetItemPrice(ClientID, VIPPACKAGE, 0, 1000);
-					BuyItem(VIPPACKAGE, ClientID, 1);
-					return;
-				}	
-				else if(str_comp(aCmd, "bsp") == 0)
-				{
-					Server()->SetItemPrice(ClientID, SKILLUPBOX, 0, 200);
-					BuyItem(SKILLUPBOX, ClientID, 1);
-					return;
-				}	
-				else if(str_comp(aCmd, "bantipvp") == 0)
-				{
-					Server()->SetItemPrice(ClientID, SANTIPVP, 0, 200);
-					BuyItem(SANTIPVP, ClientID, 1);
-					return;
-				}
-				
-				// НАСТРОЙКИ ФУНКЦИИ
-				// 功能设置
-				else if(str_comp(aCmd, "ssantiping") == 0)
-				{
-					if(Server()->GetClientAntiPing(ClientID))
-						Server()->SetClientAntiPing(ClientID, 0);
-					else 
-						Server()->SetClientAntiPing(ClientID, 1);
-						
-					ResetVotes(ClientID, SETTINGS);	
-					return;
-				}	
-				else if(str_comp(aCmd, "sssecurity") == 0)
-				{
-					if(Server()->GetSecurity(ClientID))
-						Server()->SetSecurity(ClientID, 0);
-					else 
-						Server()->SetSecurity(ClientID, 1);
-						
-					ResetVotes(ClientID, SETTINGS);	
-					return;
-				}	
-					
-				else if(str_comp(aCmd, "sssetingschat") == 0)
-				{
-					int Get = Server()->GetItemSettings(ClientID, SCHAT)+1;
-					if(Get > 2) Server()->SetItemSettingsCount(ClientID, SCHAT, 0);
-					else Server()->SetItemSettingsCount(ClientID, SCHAT, Get);
-						
-					UpdateStats(ClientID);
-					ResetVotes(ClientID, SETTINGS);	
-					return;
-				}	
-				else if(str_comp(aCmd, "sskillwall") == 0)
-				{
-					int Get = Server()->GetItemSettings(ClientID, SKWALL)+1;
-					if(Get > 7) Server()->SetItemSettingsCount(ClientID, SKWALL, 0);
-					else Server()->SetItemSettingsCount(ClientID, SKWALL, Get);
-						
-					UpdateStats(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					return;
-				}	
-				else if(str_comp(aCmd, "sskillheal") == 0)
-				{
-					int Get = Server()->GetItemSettings(ClientID, SKHEAL)+1;
-					if(Get > 7) Server()->SetItemSettingsCount(ClientID, SKHEAL, 0);
-					else Server()->SetItemSettingsCount(ClientID, SKHEAL, Get);
-						
-					UpdateStats(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					return;
-				}	
-				else if(str_comp(aCmd, "sskillsword") == 0)
-				{
-					int Get = Server()->GetItemSettings(ClientID, SSWORD)+1;
-					if(Get > 7) Server()->SetItemSettingsCount(ClientID, SSWORD, 0);
-					else Server()->SetItemSettingsCount(ClientID, SSWORD, Get);
-						
-					UpdateStats(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					return;
-				}	
-				else if(str_comp(aCmd, "sskillsummer") == 0)
-				{
-					int Get = Server()->GetItemSettings(ClientID, SHEALSUMMER)+1;
-					if(Get > 7) Server()->SetItemSettingsCount(ClientID, SHEALSUMMER, 0);
-					else Server()->SetItemSettingsCount(ClientID, SHEALSUMMER, Get);
-						
-					UpdateStats(ClientID);
-					ResetVotes(ClientID, CLMENU);	
-					return;
-				}	
-				else if(str_comp(aCmd, "semote") == 0)
-				{
-					int Get = Server()->GetItemSettings(ClientID, MODULEEMOTE)+1;
-					if(Get > 5) Server()->SetItemSettingsCount(ClientID, MODULEEMOTE, 0);
-					else Server()->SetItemSettingsCount(ClientID, MODULEEMOTE, Get);
-						
-					UpdateStats(ClientID);
-					ResetVotes(ClientID, SETTINGS);	
-					return;
-				}	
-				else if(str_comp(aCmd, "ssantipvp") == 0)
-				{
-					Server()->SetItemSettings(ClientID, SANTIPVP);
-					ResetVotes(ClientID, SETTINGS);	
-					return;
-				}		
-				else if(str_comp(aCmd, "sssetingsdrop") == 0)
-				{
-					Server()->SetItemSettings(ClientID, SDROP);
-						
-					UpdateStats(ClientID);
-					ResetVotes(ClientID, SETTINGS);	
-					return;
-				}		
-
-				// ИНВЕНТАРЬ ФУНКЦИИ 
-				// 库存功能
-				else if(str_comp(aCmd, "useitem") == 0)
-				{	
-					if(m_apPlayers[ClientID]->m_LastChangeInfo && m_apPlayers[ClientID]->m_LastChangeInfo+Server()->TickSpeed()*3 > Server()->Tick())
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("请等待..."), NULL);
-
-					m_apPlayers[ClientID]->m_LastChangeInfo = Server()->Tick();
-					int SelectItem = m_apPlayers[ClientID]->m_SelectItem;
-					
-					int Get = chartoint(pReason, MAX_COUNT );
-					if(SelectItem == RESETINGUPGRADE || SelectItem == RESETINGSKILL || SelectItem == VIPPACKAGE)
-						Get = 1;
-					
-					Server()->RemItem(ClientID, SelectItem, Get, USEDUSE);
-					m_apPlayers[ClientID]->m_SelectItem = -1;
-					ResetVotes(ClientID, AUTH);
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "sellitem") == 0)
-				{	
-					int SelectItem = m_apPlayers[ClientID]->m_SelectItem;
-
-					Server()->RemItem(ClientID, SelectItem, chartoint(pReason, MAX_COUNT), USEDSELL);
-					m_apPlayers[ClientID]->m_SelectItem = -1;
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "dropitem") == 0)
-				{
-					if(m_apPlayers[ClientID]->m_LastChangeInfo && m_apPlayers[ClientID]->m_LastChangeInfo+Server()->TickSpeed()*3 > Server()->Tick())
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("请稍候..."), NULL);
-
-					m_apPlayers[ClientID]->m_LastChangeInfo = Server()->Tick();
-					int SelectItem = m_apPlayers[ClientID]->m_SelectItem;					
-					Server()->RemItem(ClientID, SelectItem, chartoint(pReason, MAX_COUNT), USEDDROP); // Выброс предметов для всех игроков
-					m_apPlayers[ClientID]->m_SelectItem = -1;
-					ResetVotes(ClientID, AUTH);
-					return;
-				}	
-				
-				else if(str_comp(aCmd, "enchantitem") == 0)
-				{
-					if(m_apPlayers[ClientID]->m_LastChangeInfo && m_apPlayers[ClientID]->m_LastChangeInfo+Server()->TickSpeed()*3 > Server()->Tick())
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("请等待..."), NULL);
-
-					m_apPlayers[ClientID]->m_LastChangeInfo = Server()->Tick();
-					int SelectItem = m_apPlayers[ClientID]->m_SelectItem;					
-					if(Server()->GetItemCount(ClientID, MATERIAL) < 1000)
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("需要 1000 材料(material)"), NULL); 	
-
-					Server()->RemItem(ClientID, MATERIAL, 1000, -1);
-
-					auto p = (float)(1.0f / (1 + Server()->GetItemEnchant(ClientID, SelectItem)));
-					//TODO
-					if(random_prob(p))
-					{
-						Server()->SetItemEnchant(ClientID, SelectItem, Server()->GetItemEnchant(ClientID, SelectItem)+1);
-
-						int Enchant = Server()->GetItemEnchant(ClientID, SelectItem);
-						SendChatTarget_Localization(-1, CHATCATEGORY_DEFAULT, _("{str:name} 成功地附魔了物品:{str:item} +{int:enchant}"), 
-							"name", Server()->ClientName(ClientID), "item", Server()->GetItemName(ClientID, SelectItem), "enchant", &Enchant, NULL); 
-					
-						if(Enchant == 10 && !Server()->GetItemCount(ClientID, TITLEENCHANT))
-						{
-							SendMail(ClientID, 3, TITLEENCHANT, 1);
-						}
-					}
-					else SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("升级失败."), NULL); 
-				
-					m_apPlayers[ClientID]->m_SelectItem = -1;
-					ResetVotes(ClientID, ARMORMENU);
-					return;
-				}	
-
-				else if(str_comp(aCmd, "destitem") == 0)
-				{
-					if(m_apPlayers[ClientID]->m_LastChangeInfo && m_apPlayers[ClientID]->m_LastChangeInfo+Server()->TickSpeed()*3 > Server()->Tick())
-						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("请等候..."), NULL);
-
-					m_apPlayers[ClientID]->m_LastChangeInfo = Server()->Tick();
-					int SelectItem = m_apPlayers[ClientID]->m_SelectItem;
-					int Get = chartoint(pReason, MAX_COUNT);
-					
-					if(Server()->GetItemCount(ClientID, SelectItem) < Get)	
-						Get = Server()->GetItemCount(ClientID, SelectItem);
-					
-					if(!Server()->GetItemCount(ClientID, SelectItem))
-					{
-						if(m_apPlayers[ClientID]->GetCharacter())
-							switch(SelectItem)
-							{
-								case IGUN:	m_apPlayers[ClientID]->GetCharacter()->RemoveGun(WEAPON_GUN); break;
-								case ISHOTGUN: m_apPlayers[ClientID]->GetCharacter()->RemoveGun(WEAPON_SHOTGUN); break;
-								case IGRENADE: m_apPlayers[ClientID]->GetCharacter()->RemoveGun(WEAPON_GRENADE); break;
-								case ILASER: m_apPlayers[ClientID]->GetCharacter()->RemoveGun(WEAPON_RIFLE); break;
-							}
-					}
-					Server()->RemItem(ClientID, SelectItem, Get, -1);
-
-					if(Server()->GetItemType(ClientID, SelectItem) == 15 || Server()->GetItemType(ClientID, SelectItem) == 16)
-						m_pController->OnPlayerInfoChange(pPlayer);
-
-					m_apPlayers[ClientID]->m_SelectItem = -1;
-					ResetVotes(ClientID, AUTH);
-					return;
-				}	
-						
-				else if(str_comp(aCmd, "getolbonus") == 0)
-				{
-					Server()->InitMailID(ClientID);
-					//if(m_apPlayers[ClientID]->m_LastChangeInfo && m_apPlayers[ClientID]->m_LastChangeInfo+Server()->TickSpeed()*4 > Server()->Tick())
-					//	return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("请等待..."), NULL);
-
-					m_apPlayers[ClientID]->m_LastChangeInfo = Server()->Tick();
-					Server()->RemMail_OnlineBonus(ClientID);
-					ResetVotes(ClientID, MAILMENU);
-				}
-
-				for(int i = 0; i < 20; i++)
-				{
-					char aBuf[16];
-					str_format(aBuf, sizeof(aBuf), "reward%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						Server()->RemMail(ClientID, i);
-						ResetVotes(ClientID, MAILMENU);
+						#include "VoteMsgParser.h"
+						VoteMsgParser[aCmd]();
 					}
 				}
-
-				for(int i = 1; i < MAXMENU; ++i)
-				{
-					char aBuf[16];
-					str_format(aBuf, sizeof(aBuf), "menu%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						ResetVotes(ClientID, i);
-						return;	
-					}						
-				}	
-
-				for(int i = 1; i < 7; ++i)
-				{
-					char aBuf[16];
-					str_format(aBuf, sizeof(aBuf), "its%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						m_apPlayers[ClientID]->m_SelectItemType = i;
-						ResetVotes(ClientID, INVENTORY);
-						return;	
-					}						
-				}			
-				for(int i = 1; i < 7; ++i)
-				{
-					char aBuf[16];
-					str_format(aBuf, sizeof(aBuf), "scr%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						m_apPlayers[ClientID]->m_SortedSelectCraft = i;
-						ResetVotes(ClientID, CRAFTING);
-						return;	
-					}						
-				}
-
-				for(int i = 1; i < 4; i++)
-				{
-					char aBuf[16];
-					str_format(aBuf, sizeof(aBuf), "armor%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						m_apPlayers[ClientID]->m_SelectArmor = i;
-						ResetVotes(ClientID, ARMORMENU);
-						return;	
-					}						
-				}
-
-				for(int i = 1; i < 9; ++i)
-				{
-					char aBuf[16];
-					str_format(aBuf, sizeof(aBuf), "sort%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						m_apPlayers[ClientID]->m_SortedSelectTop = i;
-						ResetVotes(ClientID, TOPMENU);
-						return;	
-					}						
-				}
-
-				// Все функции с предметами
-				// 带项目的所有功能
-				for(int i = 0; i < MAX_ITEM; ++i)
-				{
-					char aBuf[16];
-
-					str_format(aBuf, sizeof(aBuf), "set%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						Server()->SetItemSettings(ClientID, i, Server()->GetItemType(ClientID, i));	
-						ResetVotes(ClientID, m_apPlayers[ClientID]->m_UpdateMenu);	
-
-						m_pController->OnPlayerInfoChange(m_apPlayers[ClientID]);
-
-						if(i == PIZDAMET)
-						{	
-							if(Server()->GetItemSettings(ClientID, PIZDAMET))
-								Server()->SetFireDelay(ClientID, INFWEAPON_GRENADE, 7000);
-							else
-								Server()->SetFireDelay(ClientID, INFWEAPON_GRENADE, int(1000+m_apPlayers[ClientID]->AccUpgrade.Speed*8));
-						}
-
-						if(i == LAMPHAMMER)
-						{	
-							if(Server()->GetItemSettings(ClientID, LAMPHAMMER))
-								Server()->SetFireDelay(ClientID, INFWEAPON_HAMMER, 1200);
-							else
-								Server()->SetFireDelay(ClientID, INFWEAPON_HAMMER, int(1000+m_apPlayers[ClientID]->AccUpgrade.Speed*12));
-						}
-						return;	
-					}	
-
-					str_format(aBuf, sizeof(aBuf), "bon%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						BuyItem(i, ClientID);
-						return;	
-					}	
-
-					str_format(aBuf, sizeof(aBuf), "seli%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						Server()->RemItem(ClientID, i, chartoint(pReason, MAX_COUNT), USEDSELL);
-						return;	
-					}	
-
-					str_format(aBuf, sizeof(aBuf), "it%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						m_apPlayers[ClientID]->m_SelectItem = i;
-						ResetVotes(ClientID, SELITEM);
-						return;	
-					}	
-
-					str_format(aBuf, sizeof(aBuf), "cra%d", i);
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						CreateItem(ClientID, i, chartoint(pReason, MAX_COUNT));
-						return;	
-					}	
-				}	
-				
-				for(int i = 0; i < 64; ++i)
-				{
-					char aBuf[16];
-					str_format(aBuf, sizeof(aBuf), "cs%d", i);
-					
-					if(str_comp(aCmd, aBuf) == 0)
-					{
-						str_copy(m_apPlayers[ClientID]->m_SelectPlayer, Server()->GetSelectName(ClientID, i), sizeof(m_apPlayers[ClientID]->m_SelectPlayer));
-						ResetVotes(ClientID, CSETTING);
-						return;
-					}	
-				}	
+				break;
 			}
-		}
-		else if(MsgID == NETMSGTYPE_CL_VOTE)
-		{	
-			CNetMsg_Cl_Vote *pMsg = (CNetMsg_Cl_Vote *)pRawMsg;		
-			if(m_InviteTick[ClientID] > 0)
+			case NETMSGTYPE_CL_VOTE:
 			{
-				if(!pMsg->m_Vote)
-					return;
-
-				if(pMsg->m_Vote)
+				auto *pMsg = (CNetMsg_Cl_Vote *)pRawMsg;		
+				if(m_InviteTick[ClientID] > 0)
 				{
-					if(pMsg->m_Vote > 0)
+					if(!pMsg->m_Vote)
+						return;
+					else 
 					{
 						if(m_apPlayers[ClientID])
-						{	
+						{
 							EnterClan(ClientID, m_apPlayers[ClientID]->m_InviteClanID);
 							ResetVotes(ClientID, AUTH);
 							SendBroadcast_Localization(ClientID, BROADCAST_PRIORITY_INTERFACE, 150, _("欢迎来到公会"), NULL);
 						}
+						m_InviteTick[ClientID] = 0;
+						CNetMsg_Sv_VoteSet Msg;
+						Msg.m_Timeout = 0;
+						Msg.m_pDescription = "";
+						Msg.m_pReason = "";
+						Server()->SendPackMsg(&Msg, MSGFLAG_VITAL, ClientID);
 					}
-					else
-					{
-						if(m_apPlayers[ClientID])
-							SendBroadcast_Localization(ClientID, BROADCAST_PRIORITY_INTERFACE, 10, _(" "), NULL);
-					}
-					m_InviteTick[ClientID] = 0;
-
-					CNetMsg_Sv_VoteSet Msg;
-					Msg.m_Timeout = 0;
-					Msg.m_pDescription = "";
-					Msg.m_pReason = "";
-					Server()->SendPackMsg(&Msg, MSGFLAG_VITAL, ClientID);
 				}
+				else if(m_apPlayers[ClientID]->GetCharacter())
+				{
+					m_apPlayers[ClientID]->GetCharacter()->PressF3orF4(ClientID, pMsg->m_Vote);
+				}
+				break;
 			}
-			else if(m_apPlayers[ClientID]->GetCharacter())
+			case NETMSGTYPE_CL_SETTEAM:
 			{
-				m_apPlayers[ClientID]->GetCharacter()->PressF3orF4(ClientID, pMsg->m_Vote);
-			}
-		}
-		else if (MsgID == NETMSGTYPE_CL_SETTEAM && !m_World.m_Paused)
-		{
-			CNetMsg_Cl_SetTeam *pMsg = (CNetMsg_Cl_SetTeam *)pRawMsg;
-			if(pPlayer->GetTeam() == pMsg->m_Team || pPlayer->GetTeam() != TEAM_SPECTATORS)
-				return;
+				if (!m_World.m_Paused)
+				{
+					CNetMsg_Cl_SetTeam *pMsg = (CNetMsg_Cl_SetTeam *)pRawMsg;
+					if(pPlayer->GetTeam() == pMsg->m_Team || pPlayer->GetTeam() != TEAM_SPECTATORS)
+						return;
 
-			if(!Server()->IsClientLogged(ClientID))
+					if(!Server()->IsClientLogged(ClientID))
+					{
+						SendBroadcast_Localization(ClientID, BROADCAST_PRIORITY_GAMEANNOUNCE, BROADCAST_DURATION_GAMEANNOUNCE, _("你需要登录(/login)或者创建(/register)一个新账户"), NULL);
+						return;
+					}
+
+					GetStat(ClientID);
+					GetUpgrade(ClientID);
+
+					CPlayer *pPlayer = m_apPlayers[ClientID];
+					if(g_Config.m_SvCityStart == 1 && pPlayer->AccData.Level < 250)
+					{ 
+						SendBroadcast_Localization(ClientID, BROADCAST_PRIORITY_GAMEANNOUNCE, BROADCAST_DURATION_GAMEANNOUNCE, _("你需要 250 级"), NULL);
+						return;
+					}
+					if(pPlayer->AccData.Level <= 0 || pPlayer->AccData.Class == -1)
+					{
+						SendBroadcast_Localization(ClientID, BROADCAST_PRIORITY_GAMEANNOUNCE, BROADCAST_DURATION_GAMEANNOUNCE, _("读取数据时发生错误,请报告管理员"), NULL);
+						return;
+					}
+
+					if(!Server()->GetItemCount(ClientID, CUSTOMSKIN))
+						pPlayer->SetClassSkin(m_apPlayers[ClientID]->GetClass());
+
+					Server()->InitClanID(Server()->GetClanID(ClientID), PLUS, "Init", 0, false);
+					Server()->ListInventory(ClientID, -1, true);	
+					pPlayer->SetTeam(1, false);
+					ResetVotes(ClientID, AUTH);
+					pPlayer->SetMoveChar();	
+				}
+				break;
+			}
+			case NETMSGTYPE_CL_SETSPECTATORMODE:
 			{
-				SendBroadcast_Localization(ClientID, BROADCAST_PRIORITY_GAMEANNOUNCE, BROADCAST_DURATION_GAMEANNOUNCE, _("你需要登录(/login)或者创建(/register)一个新账户"), NULL);
-				return;
-			}
+				if (!m_World.m_Paused)
+				{
+					auto *pMsg = (CNetMsg_Cl_SetSpectatorMode *)pRawMsg;
+					if(pMsg->m_SpectatorID != SPEC_FREEVIEW && !Server()->ReverseTranslate(pMsg->m_SpectatorID, ClientID))
+						return;
 
-			GetStat(ClientID);
-			GetUpgrade(ClientID);
+					if((g_Config.m_SvSpamprotection && pPlayer->m_LastSetSpectatorMode && pPlayer->m_LastSetSpectatorMode+Server()->TickSpeed()/4 > Server()->Tick()))
+						return;
 
-			CPlayer *pPlayer = m_apPlayers[ClientID];
-			if(g_Config.m_SvCityStart == 1 && pPlayer->AccData.Level < 250)
-			{ 
-       			SendBroadcast_Localization(ClientID, BROADCAST_PRIORITY_GAMEANNOUNCE, BROADCAST_DURATION_GAMEANNOUNCE, _("你需要 250 级"), NULL);
-				return;
+					pPlayer->m_LastSetSpectatorMode = Server()->Tick();
+					if(pMsg->m_SpectatorID != SPEC_FREEVIEW && (!m_apPlayers[pMsg->m_SpectatorID] || m_apPlayers[pMsg->m_SpectatorID]->GetTeam() == TEAM_SPECTATORS))
+						SendChatTarget(ClientID, "Invalid spectator id used");
+					else
+						pPlayer->m_SpectatorID = pMsg->m_SpectatorID;
+				}
+				break;
 			}
-			if(pPlayer->AccData.Level <= 0 || pPlayer->AccData.Class == -1)
+			case NETMSGTYPE_CL_CHANGEINFO:
 			{
-				SendBroadcast_Localization(ClientID, BROADCAST_PRIORITY_GAMEANNOUNCE, BROADCAST_DURATION_GAMEANNOUNCE, _("读取数据时发生错误,请报告管理员"), NULL);
-				return;
-			}
-
-			if(!Server()->GetItemCount(ClientID, CUSTOMSKIN))
-				pPlayer->SetClassSkin(m_apPlayers[ClientID]->GetClass());
-
-			Server()->InitClanID(Server()->GetClanID(ClientID), PLUS, "Init", 0, false);
-			Server()->ListInventory(ClientID, -1, true);	
-			pPlayer->SetTeam(1, false);
-			ResetVotes(ClientID, AUTH);
-			pPlayer->SetMoveChar();	
-		}
-		else if (MsgID == NETMSGTYPE_CL_SETSPECTATORMODE && !m_World.m_Paused)
-		{
-			CNetMsg_Cl_SetSpectatorMode *pMsg = (CNetMsg_Cl_SetSpectatorMode *)pRawMsg;
-			if(pMsg->m_SpectatorID != SPEC_FREEVIEW)
-				if (!Server()->ReverseTranslate(pMsg->m_SpectatorID, ClientID))
+				if(g_Config.m_SvSpamprotection && pPlayer->m_LastChangeInfo && pPlayer->m_LastChangeInfo+Server()->TickSpeed()*5 > Server()->Tick())
 					return;
 
-			if((g_Config.m_SvSpamprotection && pPlayer->m_LastSetSpectatorMode && pPlayer->m_LastSetSpectatorMode+Server()->TickSpeed()/4 > Server()->Tick()))
-				return;
+				pPlayer->m_LastChangeInfo = Server()->Tick();
+				m_pController->OnPlayerInfoChange(pPlayer);
 
-			pPlayer->m_LastSetSpectatorMode = Server()->Tick();
-			if(pMsg->m_SpectatorID != SPEC_FREEVIEW && (!m_apPlayers[pMsg->m_SpectatorID] || m_apPlayers[pMsg->m_SpectatorID]->GetTeam() == TEAM_SPECTATORS))
-				SendChatTarget(ClientID, "Invalid spectator id used");
-			else
-				pPlayer->m_SpectatorID = pMsg->m_SpectatorID;
-		}
-		else if (MsgID == NETMSGTYPE_CL_CHANGEINFO)
-		{
-			if(g_Config.m_SvSpamprotection && pPlayer->m_LastChangeInfo && pPlayer->m_LastChangeInfo+Server()->TickSpeed()*5 > Server()->Tick())
-				return;
+				auto *pMsg = (CNetMsg_Cl_ChangeInfo *)pRawMsg;
+				Server()->SetClientCountry(ClientID, pMsg->m_Country);
+				if(Server()->GetItemCount(pPlayer->GetCID(), CUSTOMSKIN))
+					str_copy(pPlayer->m_TeeInfos.m_SkinName, pMsg->m_pSkin, sizeof(pPlayer->m_TeeInfos.m_SkinName));
+				break;
+			}
+			case NETMSGTYPE_CL_EMOTICON:
+			{
+				if (!m_World.m_Paused)
+				{
+					auto *pMsg = (CNetMsg_Cl_Emoticon *)pRawMsg;
+					SendEmoticon(ClientID, pMsg->m_Emoticon);
 
-			pPlayer->m_LastChangeInfo = Server()->Tick();
-			m_pController->OnPlayerInfoChange(pPlayer);
-
-			CNetMsg_Cl_ChangeInfo *pMsg = (CNetMsg_Cl_ChangeInfo *)pRawMsg;
-			Server()->SetClientCountry(ClientID, pMsg->m_Country);
-			if(Server()->GetItemCount(pPlayer->GetCID(), CUSTOMSKIN))
-				str_copy(pPlayer->m_TeeInfos.m_SkinName, pMsg->m_pSkin, sizeof(pPlayer->m_TeeInfos.m_SkinName));
-		}
-		else if (MsgID == NETMSGTYPE_CL_EMOTICON && !m_World.m_Paused)
-		{
-			CNetMsg_Cl_Emoticon *pMsg = (CNetMsg_Cl_Emoticon *)pRawMsg;
-			SendEmoticon(ClientID, pMsg->m_Emoticon);
-
-			if(pPlayer->GetCharacter() && pMsg->m_Emoticon >= 2)
-				pPlayer->GetCharacter()->ParseEmoticionButton(ClientID, pMsg->m_Emoticon);
-		}
-		else if (MsgID == NETMSGTYPE_CL_KILL && !m_World.m_Paused)
-		{
-			if((pPlayer->m_LastKill && pPlayer->m_LastKill+Server()->TickSpeed()*3 > Server()->Tick()) || !Server()->GetItemCount(ClientID, SDROP) || pPlayer->m_Search || pPlayer->m_InArea)
-				return;
-
-			pPlayer->m_LastKill = Server()->Tick();
-			pPlayer->KillCharacter(WEAPON_SELF);
-		}
+					if(pPlayer->GetCharacter() && pMsg->m_Emoticon >= 2)
+						pPlayer->GetCharacter()->ParseEmoticionButton(ClientID, pMsg->m_Emoticon);
+				}
+				break;
+			}
+			case NETMSGTYPE_CL_KILL:
+			{
+                if (!m_World.m_Paused ||
+                    (pPlayer->m_LastKill && pPlayer->m_LastKill + Server()->TickSpeed() * 3 > Server()->Tick()) ||
+                    !Server()->GetItemCount(ClientID, SDROP) ||
+                    pPlayer->m_Search ||
+					pPlayer->m_InArea) 
+				{
+                    pPlayer->m_LastKill = Server()->Tick();
+                    pPlayer->KillCharacter(WEAPON_SELF);
+                }
+            	break;
+			}
+			default:
+				dbg_msg("sys", "Error value %d in %s:%d", MsgID, __FILE__, __LINE__);
+				break;
+	}
 	}
 	else
 	{
@@ -2574,7 +1433,7 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 			if(pPlayer->m_IsReady)
 				return;
 
-			CNetMsg_Cl_StartInfo *pMsg = (CNetMsg_Cl_StartInfo *)pRawMsg;
+			auto *pMsg = (CNetMsg_Cl_StartInfo *)pRawMsg;
 			pPlayer->m_LastChangeInfo = Server()->Tick();
 
 			// set start infos
@@ -2594,6 +1453,7 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 			pPlayer->m_IsReady = true;
 			CNetMsg_Sv_ReadyToEnter m;
 			Server()->SendPackMsg(&m, MSGFLAG_VITAL|MSGFLAG_FLUSH, ClientID);
+			return;
 		}
 	}
 }
@@ -2608,34 +1468,39 @@ void CGameContext::BuyItem(int ItemType, int ClientID, int Type)
 	if(Server()->GetItemCount(ClientID, ItemType) && ItemType != CLANTICKET && ItemType != BOOKEXPMIN && ItemType != GOLDTICKET && ItemType != MONEYBAG &&ItemType != EXTENDLIMIT)
 		return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你已购买."), NULL);	
 	
-	if(m_apPlayers[ClientID]->AccData.Level < Server()->GetItemPrice(ClientID, ItemType, 0))
-		return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有达到规定的等级."), NULL);	
-		
-	if(Type == 0 && m_apPlayers[ClientID]->AccData.Gold < (unsigned long)Server()->GetItemPrice(ClientID, ItemType, 1))
-		return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的黄金,小穷光蛋."), NULL);	
-
-	if(Type == 1 && m_apPlayers[ClientID]->AccData.Donate < Server()->GetItemPrice(ClientID, ItemType, 1))
-		return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够点券(donate money),充钱吧."), NULL);	
-
-	if(Type == 0)
-	{
-		int NeedMaterial = Server()->GetItemPrice(ClientID, ItemType, 1);
-		if(Server()->GetMaterials(0) < NeedMaterial)
-			return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("店里可没材料."), NULL);	
-
-		Server()->SetMaterials(0, Server()->GetMaterials(0)-NeedMaterial);
+	else if(m_apPlayers[ClientID]->AccData.Level < Server()->GetItemPrice(ClientID, ItemType, 0))
+		return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有达到规定的等级."), NULL);
+	
+	switch (Type) {
+		case 0:
+		{
+			int NeedMaterial = Server()->GetItemPrice(ClientID, ItemType, 1);
+			if(m_apPlayers[ClientID]->AccData.Gold < (unsigned)Server()->GetItemPrice(ClientID, ItemType, 1))
+				return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的黄金,小穷光蛋."), NULL);
+			else if(Server()->GetMaterials(0) < NeedMaterial)
+				return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("店里可没材料."), NULL);
+			Server()->SetMaterials(0, Server()->GetMaterials(0)-NeedMaterial);
+			m_apPlayers[ClientID]->AccData.Gold -= Server()->GetItemPrice(ClientID, ItemType, 1);
+			GiveItem(ClientID, ItemType, 1);
+			if(ItemType == IGUN) m_apPlayers[ClientID]->GetCharacter()->GiveWeapon(WEAPON_GUN, 5);
+			else if(ItemType == ISHOTGUN) m_apPlayers[ClientID]->GetCharacter()->GiveWeapon(WEAPON_SHOTGUN, 5);
+			else if(ItemType == IGRENADE) m_apPlayers[ClientID]->GetCharacter()->GiveWeapon(WEAPON_GRENADE, 5);
+			else if(ItemType == ILASER) m_apPlayers[ClientID]->GetCharacter()->GiveWeapon(WEAPON_RIFLE, 5);
+			break;
+		}
+		case 1:
+		{
+			if (m_apPlayers[ClientID]->AccData.Donate < Server()->GetItemPrice(ClientID, ItemType, 1))
+				return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够点券(donate money),充钱吧."), NULL);
+			m_apPlayers[ClientID]->AccData.Donate -= Server()->GetItemPrice(ClientID, ItemType, 1);
+			GiveItem(ClientID, ItemType, 1);
+			break;
+		}
+		default:
+			dbg_msg("sys", "Error value %d in %s:%d", Type, __FILE__, __LINE__);
+			break;
 	}
-
-	if(Type == 0) m_apPlayers[ClientID]->AccData.Gold -= Server()->GetItemPrice(ClientID, ItemType, 1);
-	else if(Type == 1) m_apPlayers[ClientID]->AccData.Donate -= Server()->GetItemPrice(ClientID, ItemType, 1);
-	GiveItem(ClientID, ItemType, 1);
-	SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你成功地购买了商品"), NULL);							
-	
-	if(ItemType == IGUN) m_apPlayers[ClientID]->GetCharacter()->GiveWeapon(WEAPON_GUN, 5);
-	if(ItemType == ISHOTGUN) m_apPlayers[ClientID]->GetCharacter()->GiveWeapon(WEAPON_SHOTGUN, 5);
-	if(ItemType == IGRENADE) m_apPlayers[ClientID]->GetCharacter()->GiveWeapon(WEAPON_GRENADE, 5);
-	if(ItemType == ILASER) m_apPlayers[ClientID]->GetCharacter()->GiveWeapon(WEAPON_RIFLE, 5);
-	
+	SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你成功地购买了商品"), NULL);
 	dbg_msg("buy/shop", "%s 购买了 %s:%d", Server()->ClientName(ClientID), Server()->GetItemName(ClientID, ItemType, false), ItemType);
 	m_apPlayers[ClientID]->m_LoginSync = 10;
 	UpdateStats(ClientID);
@@ -2961,7 +1826,6 @@ void CGameContext::CreateItem(int ClientID, int ItemID, int Count)
 			Server()->RemItem(ClientID, POTATO, 60 * Count, -1);
 			Server()->RemItem(ClientID, CARROT, 60 * Count, -1);
 		} break;
-
 		case COOPERPIX: 
 		{
 			if(Server()->GetItemCount(ClientID, WOOD) < 30 * Count || Server()->GetItemCount(ClientID, COOPERORE) < 60 * Count)
@@ -3282,9 +2146,11 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	if(m_apPlayers[ClientID]->GetCharacter() && Type > AUTH)
 		CreateSound(m_apPlayers[ClientID]->GetCharacter()->m_Pos, 25);
 	
-	//TODO
 	// ############################### Основное не авторизированных
-	if(Type == NOAUTH)
+	switch(Type)
+	{
+
+	case NOAUTH:
 	{
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
 		AddVote_Localization(ClientID, "info", "制作者名单");
@@ -3296,7 +2162,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	
 	// ############################### Основное меню авторизированных
-	else if(Type == AUTH)
+	case AUTH:
 	{
 		if(m_apPlayers[ClientID]->GetTeam() == TEAM_SPECTATORS)
 			return;
@@ -3430,7 +2296,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 		return;
 	}
 	
-	else if(Type == JOBSSET)
+	case JOBSSET:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
@@ -3458,7 +2324,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 		return;
 	}
 
-	else if(Type == MAILMENU)
+	case MAILMENU:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
@@ -3467,10 +2333,11 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 		Server()->InitMailID(ClientID);
 		AddBack(ClientID);
 		AddVote("", "null", ClientID);
+		return;
 	}
 
 
-	else if(Type == ARMORMENU) 
+	case ARMORMENU:
 	{
 		m_apPlayers[ClientID]->m_UpdateMenu = Type; 
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;
@@ -3502,11 +2369,12 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 			Server()->ListInventory(ClientID, 16);
 		else if(m_apPlayers[ClientID]->m_SelectArmor == 3)
 			Server()->ListInventory(ClientID, 17);
+		return;
 	}
 
 
 	// ############################### Ачивки и Титулы - 成就与称号还有头衔之类的
-	else if(Type == INTITLE)
+	case INTITLE:
 	{
 		m_apPlayers[ClientID]->m_UpdateMenu = Type;
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;
@@ -3528,7 +2396,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	
 	// ############################### Меню настроек - 设置菜单
-	else if(Type == SETTINGS)
+	case SETTINGS:
 	{
 		m_apPlayers[ClientID]->m_UpdateMenu = Type;
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;
@@ -3599,7 +2467,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	
 	// ############################### Меню хилера
-	else if(Type == CLMENU)
+	case CLMENU:
 	{
 		m_apPlayers[ClientID]->m_UpdateMenu = Type;
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;
@@ -3623,26 +2491,33 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 		AddVote_Localization(ClientID, "null", "♞ {str:psevdo}", "psevdo", LocalizeText(ClientID, "职业被动技"));
 		
 		int Need = HAMMERRANGE;
-		if(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER)
+		switch (m_apPlayers[ClientID]->GetClass())
 		{
-			AddVote_Localization(ClientID, "ushammerrange", "☞ ({int:need}技能点) 生命值 +4% ({str:act}) ({int:sum})", "need", &Need, "act", 
-				m_apPlayers[ClientID]->AccUpgrade.HammerRange ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.HammerRange);		
-			AddVote_Localization(ClientID, "upasive2", "☞ ({int:need}技能点) 伤害减免 +2% ({str:act}) ({int:sum})", "need", &Need, "act", 
-				m_apPlayers[ClientID]->AccUpgrade.Pasive2 ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.Pasive2);			
+		case PLAYERCLASS_HEALER:
+		{
+			AddVote_Localization(ClientID, "ushammerrange", "☞ ({int:need}技能点) 生命值 +4% ({str:act}) ({int:sum})", "need", &Need, "act",
+								 m_apPlayers[ClientID]->AccUpgrade.HammerRange ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.HammerRange);
+			AddVote_Localization(ClientID, "upasive2", "☞ ({int:need}技能点) 伤害减免 +2% ({str:act}) ({int:sum})", "need", &Need, "act",
+								 m_apPlayers[ClientID]->AccUpgrade.Pasive2 ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.Pasive2);
+			break;
 		}
-		else if(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS)
+		case PLAYERCLASS_ASSASINS:
 		{
-			AddVote_Localization(ClientID, "ushammerrange", "☞ ({int:need}技能点) 暴击率 +6.67% ({str:act}) ({int:sum})", "need", &Need, "act", 
-				m_apPlayers[ClientID]->AccUpgrade.HammerRange ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.HammerRange);		
-			AddVote_Localization(ClientID, "upasive2", "☞ ({int:need}技能点) 暴击伤害 +3% ({str:act}) ({int:sum})", "need", &Need, "act", 
-				m_apPlayers[ClientID]->AccUpgrade.Pasive2 ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.Pasive2);			
+			AddVote_Localization(ClientID, "ushammerrange", "☞ ({int:need}技能点) 暴击率 +6.67% ({str:act}) ({int:sum})", "need", &Need, "act",
+								 m_apPlayers[ClientID]->AccUpgrade.HammerRange ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.HammerRange);
+			AddVote_Localization(ClientID, "upasive2", "☞ ({int:need}技能点) 暴击伤害 +3% ({str:act}) ({int:sum})", "need", &Need, "act",
+								 m_apPlayers[ClientID]->AccUpgrade.Pasive2 ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.Pasive2);
+			break;
 		}
-		else if(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK)
+		case PLAYERCLASS_BERSERK:
 		{
-			AddVote_Localization(ClientID, "ushammerrange", "☞ ({int:need}技能点) 锤子范围 ({str:act}) ({int:sum})", "need", &Need, "act", 
-				m_apPlayers[ClientID]->AccUpgrade.HammerRange ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.HammerRange);		
-			AddVote_Localization(ClientID, "upasive2", "☞ ({int:need}技能点) 伤害 +3% ({str:act}) ({int:sum})", "need", &Need, "act", 
-				m_apPlayers[ClientID]->AccUpgrade.Pasive2 ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.Pasive2);			
+			AddVote_Localization(ClientID, "ushammerrange", "☞ ({int:need}技能点) 锤子范围 ({str:act}) ({int:sum})", "need", &Need, "act",
+								 m_apPlayers[ClientID]->AccUpgrade.HammerRange ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.HammerRange);
+			AddVote_Localization(ClientID, "upasive2", "☞ ({int:need}技能点) 伤害 +3% ({str:act}) ({int:sum})", "need", &Need, "act",
+								 m_apPlayers[ClientID]->AccUpgrade.Pasive2 ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade.Pasive2);
+			break;
+		}
+		default: dbg_msg("sys", "Error value %d in %s:%d", m_apPlayers[ClientID]->GetClass(), __FILE__, __LINE__); break;
 		}
 		AddVote("············", "null", ClientID);
 
@@ -3660,7 +2535,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	 
 	// ############################### Клан основное меню
-	else if(Type == CLAN)
+	case CLAN:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;
 		int ID = Server()->GetClanID(ClientID);
@@ -3700,7 +2575,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	
 	// ############################### Дом клана
-	else if(Type == CHOUSE)
+	case CHOUSE:
 	{ 
 		m_apPlayers[ClientID]->m_LastVotelist = CLAN;	
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
@@ -3734,12 +2609,11 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 
 
 	// ############################### Лист клана
-	else if(Type == CLANLIST)
+	case CLANLIST:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = CLAN;	
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
 		AddVote_Localization(ClientID, "null", "这是会长处置玩家的菜单");
-		//AddVote_Localization(ClientID, "null", "For open player settings");
 		Server()->ListClan(ClientID, Server()->GetClanID(ClientID));
 		AddBack(ClientID);
 		AddVote("", "null", ClientID);
@@ -3747,7 +2621,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	
 	// ############################### Выбор действия над игроком с клана
-	else if(Type == CSETTING)
+	case CSETTING:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = CLANLIST;	
 		
@@ -3773,7 +2647,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	
 	// ############################### Магазин клана
-	else if(Type == CSHOP)
+	case CSHOP:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = CLAN;	
 		
@@ -3801,7 +2675,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	
 	// ############################### Добавка монет в клан
-	else if(Type == CMONEY)
+	case CMONEY:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = CLAN;	
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
@@ -3815,7 +2689,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 		return;
 	}
 	// ############################### Инвент лист
-	else if(Type == EVENTLIST)
+	case EVENTLIST:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;	
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
@@ -3856,7 +2730,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 		return;
 	}
 	// ############################### Лист разыскиваемых
-	else if(Type == RESLIST)
+	case RESLIST:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;	
 		
@@ -3889,7 +2763,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	
 	// ############################### Топ меню
-	else if(Type == TOPMENU)
+	case TOPMENU:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;	
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
@@ -3910,28 +2784,23 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 		AddBack(ClientID);
 		AddVote("", "null", ClientID);
 		
-		if(m_apPlayers[ClientID]->m_SortedSelectTop == 1)
-			Server()->ShowTop10(ClientID, "Level", 1);
-		else if(m_apPlayers[ClientID]->m_SortedSelectTop == 2)
-			Server()->ShowTop10(ClientID, "Gold", 1);
-		else if(m_apPlayers[ClientID]->m_SortedSelectTop == 3)
-			Server()->ShowTop10(ClientID, "Quest", 1);
-		else if(m_apPlayers[ClientID]->m_SortedSelectTop == 4)
-			Server()->ShowTop10Clans(ClientID, "Level", 1);
-		else if(m_apPlayers[ClientID]->m_SortedSelectTop == 5)
-			Server()->ShowTop10Clans(ClientID, "Money", 1);
-		else if(m_apPlayers[ClientID]->m_SortedSelectTop == 6)
-			Server()->ShowTop10(ClientID, "Killing", 1);
-		else if(m_apPlayers[ClientID]->m_SortedSelectTop == 7)
-			Server()->ShowTop10(ClientID, "WinArea", 1);
-		else if(m_apPlayers[ClientID]->m_SortedSelectTop == 8)
-			Server()->ShowTop10Clans(ClientID, "Relevance", 1);
-			
+		switch(m_apPlayers[ClientID]->m_SortedSelectTop)
+		{
+			case 1: Server()->ShowTop10(ClientID, "Level", 1); break;
+			case 2: Server()->ShowTop10(ClientID, "Gold", 1); break;
+			case 3: Server()->ShowTop10(ClientID, "Quest", 1); break;
+			case 4: Server()->ShowTop10Clans(ClientID, "Level", 1); break;
+			case 5: Server()->ShowTop10Clans(ClientID, "Money", 1); break;
+			case 6: Server()->ShowTop10(ClientID, "Killing", 1); break;
+			case 7: Server()->ShowTop10(ClientID, "WinArea", 1); break;
+			case 8: Server()->ShowTop10Clans(ClientID, "Relevance", 1); break;
+			default: dbg_msg("sys", "Error value %d in %s:%d", m_apPlayers[ClientID]->m_SortedSelectTop, __FILE__, __LINE__); break;
+		}
 		return;
 	}
 	
 	// ############################### Инвентарь
-	else if(Type == INVENTORY)
+	case INVENTORY:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
@@ -3953,24 +2822,16 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 		AddVote_Localization(ClientID, "its1", "☞ 武器与升级 ({int:got})", "got", &Counts);
 		AddBack(ClientID);
 		AddVote("", "null", ClientID);
-		if(m_apPlayers[ClientID]->m_SelectItemType == 1)
-			Server()->ListInventory(ClientID, 1);
-		else if(m_apPlayers[ClientID]->m_SelectItemType == 2)
-			Server()->ListInventory(ClientID, 2);	
-		else if(m_apPlayers[ClientID]->m_SelectItemType == 3)
-			Server()->ListInventory(ClientID, 3);			
-		else if(m_apPlayers[ClientID]->m_SelectItemType == 4)
-			Server()->ListInventory(ClientID, 4);
-		else if(m_apPlayers[ClientID]->m_SelectItemType == 5)
-			Server()->ListInventory(ClientID, 5);
-		else if(m_apPlayers[ClientID]->m_SelectItemType == 6)
-			Server()->ListInventory(ClientID, 6);
+		if(m_apPlayers[ClientID]->m_SelectItemType <= 6 && m_apPlayers[ClientID]->m_SelectItemType >= 1)
+		{
+			Server()->ListInventory(ClientID, m_apPlayers[ClientID]->m_SelectItemType);
+		}
 		// 1 - Weapon Upgradins, 2 - Rare Artifacts, 3 - Quest Item's, 4 - Useds Items, 5 - Crafted Item, 6 - Work item
 		return;
 	}
 	
 	// ############################### Донат меню
-	else if(Type == CDONATE)
+	case CDONATE:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;	
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
@@ -3995,7 +2856,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	
 
 	// ############################### Инвентарь действие -- 选择物品后的操作
-	else if(Type == SELITEM)
+	case SELITEM:
 	{
 		int SelectItem = m_apPlayers[ClientID]->m_SelectItem;
 		if(Server()->GetItemType(ClientID, SelectItem) == 15 || Server()->GetItemType(ClientID, SelectItem) == 16 
@@ -4033,7 +2894,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	
 	// ############################### Квесты меню -- 任务相关
-	else if(Type == QUEST)
+	case QUEST:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;	
 		if(m_apPlayers[ClientID]->GetCharacter() && m_apPlayers[ClientID]->GetCharacter()->InQuest())
@@ -4110,7 +2971,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 	}
 	
 	// ############################### Крафтинг меню
-	else if(Type == CRAFTING)
+	case CRAFTING:
 	{
 		m_apPlayers[ClientID]->m_LastVotelist = AUTH;	
 		AddVote_Localization(ClientID, "null", "☪ 信息 ( ′ ω ` )?:");
@@ -4128,7 +2989,9 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 		
 		if(m_apPlayers[ClientID]->GetCharacter() && m_apPlayers[ClientID]->GetCharacter()->InCrafted())
 		{
-			if(m_apPlayers[ClientID]->m_SortedSelectCraft == 1)
+			switch(m_apPlayers[ClientID]->m_SortedSelectCraft)
+			{
+			case 1:
 			{
 				AddNewCraftVote(ClientID, "与黄金1:100兑换", GOLDTICKET);
 				AddNewCraftVote(ClientID, "骷髅骨头x30", SKELETSSBONE);	
@@ -4137,9 +3000,9 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 				AddNewCraftVote(ClientID, "铁矿x125, 铜矿x125", FORMULAFORRING);	
 				AddNewCraftVote(ClientID, "铁矿x150, 铜矿x150", FORMULAWEAPON);	
 				AddNewCraftVote(ClientID, "铁矿x5", IRON);
-					
+				break;
 			}
-			else if(m_apPlayers[ClientID]->m_SortedSelectCraft == 2)
+			case 2:
 			{
 				if(g_Config.m_SvEventSummer)
 				{
@@ -4148,53 +3011,62 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 			
 				}
 
-				AddNewCraftVote(ClientID, "戒指蓝图x1, Slime的尸体x1", RARERINGSLIME);	
-				AddNewCraftVote(ClientID, "戒指蓝图x1, Boomer的尸体x100", RINGBOOMER);	
-				AddNewCraftVote(ClientID, "耳环蓝图x1, Kwah的脚x100", EARRINGSKWAH);	
+				AddNewCraftVote(ClientID, "戒指蓝图x1, Slime的尸体x1", RARERINGSLIME);
+				AddNewCraftVote(ClientID, "戒指蓝图x1, Boomer的尸体x100", RINGBOOMER);
+				AddNewCraftVote(ClientID, "耳环蓝图x1, Kwah的脚x100", EARRINGSKWAH);
 				AddNewCraftVote(ClientID, "灵魂碎片x25", CUSTOMSKIN);
 				AddNewCraftVote(ClientID, "灵魂碎片x50",CUSTOMCOLOR);
-				AddNewCraftVote(ClientID, "土豆x60,番茄x60,萝卜x60", JUMPIMPULS);		
+				AddNewCraftVote(ClientID, "土豆x60,番茄x60,萝卜x60", JUMPIMPULS);
+				break;
 			}
-			else if(m_apPlayers[ClientID]->m_SortedSelectCraft == 3)
+			case 3:
 			{
 				AddNewCraftVote(ClientID, "眼睛表情 (快乐, 愤怒, 惊讶, 眨眼, 痛苦)", MODULEEMOTE);	
 				AddNewCraftVote(ClientID, "手枪x1, 散弹枪x1, 榴弹炮x1, 激光枪x1", WEAPONPRESSED);	
 				AddNewCraftVote(ClientID, "武器蓝图x1, Boomer的戒指x1", MODULESHOTGUNSLIME);	
 				AddNewCraftVote(ClientID, "武器蓝图x25", ENDEXPLOSION);	
+				break;
 			}
-			else if(m_apPlayers[ClientID]->m_SortedSelectCraft == 4)
+			case 4:
 			{
-				
+				// Now no items here
+				break;
 			}
-			else if(m_apPlayers[ClientID]->m_SortedSelectCraft == 5)
+			case 5:
 			{
 				AddNewCraftVote(ClientID, "木头x30, 铜矿x60", COOPERPIX);		
 				AddNewCraftVote(ClientID, "木头x40, 铁矿x60", IRONPIX);		
 				AddNewCraftVote(ClientID, "木头x50, 金矿x80", GOLDPIX);		
 				AddNewCraftVote(ClientID, "木头x50, 钻石矿x100", DIAMONDPIX);	
 				AddNewCraftVote(ClientID, "木头x200, 龙矿x1000", DRAGONAXE);
-				AddNewCraftVote(ClientID, "木头x200, 龙矿x1000", DRAGONHOE);				
+				AddNewCraftVote(ClientID, "木头x200, 龙矿x1000", DRAGONHOE);
+				break;				
 			}
-			else if(m_apPlayers[ClientID]->m_SortedSelectCraft == 6)
+			case 6:
 			{
-				AddNewCraftVote(ClientID, "皮革x50, 木头x150", LEATHERBODY);		
+				AddNewCraftVote(ClientID, "皮革x50, 木头x150", LEATHERBODY);
 				AddNewCraftVote(ClientID, "皮革x40, 木头x120", LEATHERFEET);
-				AddNewCraftVote(ClientID, "铜矿x500, 木头x150", COOPERBODY);		
+				AddNewCraftVote(ClientID, "铜矿x500, 木头x150", COOPERBODY);
 				AddNewCraftVote(ClientID, "铜矿x400, 木头x120", COOPERFEET);
-				AddNewCraftVote(ClientID, "铁矿x500, 木头x150", IRONBODY);		
+				AddNewCraftVote(ClientID, "铁矿x500, 木头x150", IRONBODY);
 				AddNewCraftVote(ClientID, "铁矿x400, 木头x120", IRONFEET);
-				AddNewCraftVote(ClientID, "金矿x500, 木头x150", GOLDBODY);		
+				AddNewCraftVote(ClientID, "金矿x500, 木头x150", GOLDBODY);
 				AddNewCraftVote(ClientID, "金矿x400, 木头x120", GOLDFEET);
-				AddNewCraftVote(ClientID, "钻石矿x500, 木头x150", DIAMONDBODY);		
+				AddNewCraftVote(ClientID, "钻石矿x500, 木头x150", DIAMONDBODY);
 				AddNewCraftVote(ClientID, "钻石矿x400, 木头x120", DIAMONDFEET);
-				AddNewCraftVote(ClientID, "龙矿x500, 木头x150", DRAGONBODY);		
+				AddNewCraftVote(ClientID, "龙矿x500, 木头x150", DRAGONBODY);
 				AddNewCraftVote(ClientID, "龙矿x400, 木头x120", DRAGONFEET);
-				AddNewCraftVote(ClientID, "铜矿x100, 铁矿x10", STCLASIC);						
+				AddNewCraftVote(ClientID, "铜矿x100, 铁矿x10", STCLASIC);
+				break;
 			}
+			default: dbg_msg("sys", "Error value %d in %s:%d", m_apPlayers[ClientID]->m_SortedSelectCraft, __FILE__, __LINE__); break;
+		}
 		}
 		else AddVote_Localization(ClientID, "null", "你不在合成室(Craft Room)");
 
 		return;
+	}
+	default: dbg_msg("sys", "Error value %d in %s:%d", Type, __FILE__, __LINE__); break;
 	}
 }
 
@@ -4288,13 +3160,8 @@ void CGameContext::StartArea(int WaitTime, int Type, int ClientID)
 	m_AreaType = Type;
 
 	const char* NameGame = "NONE";
-	//int Gets = 0;
 	switch(m_AreaType)
 	{
-		/*
-		case 1: NameGame = "激光瞬杀"; Gets = 50; break;
-		case 2: NameGame = "激光献祭"; Gets = 5; break;
-		*/
 		case 1: NameGame = "激光瞬杀"; break;
 		case 2: NameGame = "激光献祭"; break;
 	}
