@@ -116,7 +116,8 @@ private:
 
 	int m_LastWeapon;
 	int m_QueuedWeapon;
-	int HPRegenTick;
+	int m_HPRegenTick;
+	int m_ManaRegenTick;
 
 	bool m_AntiPVP;
 
@@ -161,12 +162,12 @@ public:
 	
 	int m_NumInputs;
 	int m_Jumped;
-	int m_Health;
-	int m_Armor;
+	long long int m_Health;
+	long long int m_Armor;
 
 	void ElectroShock()
 	{
-		m_Core.m_Vel /= 1.5f;
+		m_Core.m_Vel *= 0.25f;
 	}
 
 	bool m_SummonByBoss;
@@ -198,6 +199,8 @@ private:
 	
 	vec2 m_SpawnPosition;
 
+	vec2 m_Recoil;
+
 public:
 	int m_PositionLockTick;
 	bool m_PositionLocked;
@@ -207,7 +210,7 @@ public:
 	int m_Poison;
 	int m_PoisonFrom;
 	int m_HookMode;
-	int m_InWater;
+	bool m_InWater;
 	int m_NinjaVelocityBuff;
 	int m_NinjaStrengthBuff;
 	int m_NinjaAmmoBuff;
@@ -216,6 +219,7 @@ public:
 	bool m_InWork;
 	bool m_InBoss;
 	bool m_InChangMap;
+	bool m_InSpace;
 
 public:
 	void DestroyChildEntities();
@@ -245,6 +249,8 @@ public:
 /* INFECTION MODIFICATION END *****************************************/
 	void HandleMapZone_Bonus();
 	void HandleMapZone_chMap();
+
+	void CheckUpgrsIfStrange(int *Count, int Max);
 };
 
 #endif

@@ -7,48 +7,15 @@
 #include <game/server/classes.h>
 #include <map>
 #include <vector>
+#include <array>
 
 /* DDNET MODIFICATION START *******************************************/
 #include "engine/server/sql_connector.h"
 #include "engine/server/sql_server.h"
+#include "snap_id_pool.h"
 /* DDNET MODIFICATION END *********************************************/
 
 #include <game/server/playerdata.h>
-
-class CSnapIDPool
-{
-	enum
-	{
-		MAX_IDS = 16*1024,
-	};
-
-	class CID
-	{
-	public:
-		short m_Next;
-		short m_State; // 0 = free, 1 = alloced, 2 = timed
-		int m_Timeout;
-	};
-
-	CID m_aIDs[MAX_IDS]{};
-
-	int m_FirstFree{};
-	int m_FirstTimed{};
-	int m_LastTimed{};
-	int m_Usage{};
-	int m_InUsage{};
-
-public:
-
-	CSnapIDPool();
-
-	void Reset();
-	void RemoveFirstTimeout();
-	int NewID();
-	void TimeoutIDs();
-	void FreeID(int ID);
-};
-
 
 class CServerBan : public CNetBan
 {
@@ -149,7 +116,7 @@ public:
 		int m_LogInstance;
 		int m_UserStatusID;
 
-		std::array<int, 18> m_ItemCount; // KIDDING ME?????
+		std::array<int, int(18)> m_ItemCount; // KIDDING ME?????
 		/*
 		m_ItemCount fuck me out!!!!!!!
 		it was 
@@ -225,11 +192,11 @@ public:
 	int m_HouseClanID[COUNT_CLANHOUSE];
 	int m_HouseOldClanID[COUNT_CLANHOUSE];
 
-	int m_Materials[3];
+	unsigned long long int m_Materials[3];
 	virtual void InitMaterialID();
 	virtual void SaveMaterials(int ID);
-	virtual int GetMaterials(int ID);
-	virtual void SetMaterials(int ID, int Count);
+	virtual unsigned long long int GetMaterials(int ID);
+	virtual void SetMaterials(int ID, unsigned long long int Count);
 
 	struct _m_stInv
 	{
@@ -272,7 +239,7 @@ public:
 	virtual void SetItemSettingsCount(int ClientID, int ItemID, int Count);
 	virtual void UpdateItemSettings(int ClientID, int ItemID);
 	virtual void GiveItem(int ClientID, int ItemID, int Count, int Settings = 0, int Enchant = 0);
-	virtual void RemItem(int ClientID, int ItemID, int Count, int Type);
+	virtual void RemItem(int ClientID, int ItemID, unsigned long long int Count, int Type);
 	virtual void SetItemPrice(int ClientID, int ItemID, int Level, int Price);
 	virtual int GetItemPrice(int ClientID, int ItemID, int Type);
 	virtual int GetItemEnchant(int ClientID, int ItemID);
@@ -291,7 +258,7 @@ public:
 
 	CSnapshotDelta m_SnapshotDelta;
 	CSnapshotBuilder m_SnapshotBuilder;
-	CSnapIDPool m_IDPool;
+	CSnapIdPool m_IdPool;
 	CNetServer m_NetServer;
 	CEcon m_Econ;
 	CServerBan m_ServerBan;
@@ -449,7 +416,7 @@ public:
 	// ----- Инвентарь
 	virtual void InitInvID(int ClientID = -1, int ItemID = -1);
 	virtual void GetItem(int ItemID, int ClientID, int Count, int Settings = 0, int Enchant = 0);
-	virtual void RemItems(int ItemID, int ClientID, int Count, int Type);
+	virtual void RemItems(int ItemID, int ClientID, unsigned long long int Count, int Type);
 	virtual void ListInventory(int ClientID, int Type, int GetCount = false);
 	virtual int GetItemCountType(int ClientID, int Type);
 	virtual void InitMailID(int ClientID);

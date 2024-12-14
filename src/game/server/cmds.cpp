@@ -43,9 +43,8 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 	{
 		LastChat();
 		if (GameServer()->Server()->IsClientLogged(ClientID))
-		{
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你已登录"), NULL);
-		}
+
 		char Username[256], Password[256];
 		if (GameServer()->Server()->GetSecurity(ClientID))
 		{
@@ -104,9 +103,7 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 			return;
 		}
 		else
-		{
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有公会票,请前往商店购买"), NULL);
-		}
 	}
 
 	else if (!strncmp(Msg->m_pMessage, "/invite", 7))
@@ -192,19 +189,14 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 
 		char RepeatPassword[256];
 		if (sscanf(Msg->m_pMessage, "/password %s %s", Password, RepeatPassword) != 2)
-		{
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("修改密码: /password <密码> <重复密码>"), NULL);
-		}
 
 		if (str_comp(Password, RepeatPassword) != 0)
-		{
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("两次密码不一致"), NULL);
-		}
 
 		if (str_length(Password) > 15 || str_length(Password) < 2)
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("密码必须包含 2~15 个字符"), NULL);
 
-		// GameServer()->Server()->Register(ClientID, Username, Password, "Lol");
 		GameServer()->Server()->ChangePassword(ClientID, Password);
 		return;
 	}
@@ -218,12 +210,13 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 	{
 		LastChat();
 		int id = 0, itemid = 0, citem = 0, enchant = 0;
+
 		if ((sscanf(Msg->m_pMessage, "/giveitem %d %d %d %d", &id, &itemid, &citem, &enchant)) < 3)
 			return GameServer()->SendChatTarget(ClientID, "命令方法: /giveitem <玩家id> <物品id> <物品数量> (附魔等级)");
-		if (id >= MAX_PLAYERS)
-		{
+
+		if (id >= MAX_PLAYERS || !GameServer()->m_apPlayers[id])
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("输入的 ID 无效."), NULL);
-		}
+
 		if (GameServer()->m_apPlayers[id] && GameServer()->Server()->IsClientLogged(id) && itemid > 0 && itemid < 500 && citem > 0)
 			GameServer()->GiveItem(id, itemid, citem, enchant);
 		char aBuf[128];
@@ -238,10 +231,13 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 		int id = 0, itemid = 0, citem = 0;
 		if ((sscanf(Msg->m_pMessage, "/remitem %d %d %d", &id, &itemid, &citem)) != 3)
 			return GameServer()->SendChatTarget(ClientID, "命令方法: /giveitem <玩家id> <物品id> <物品数量>");
-		if (id >= MAX_PLAYERS)
-		{
+
+		if(itemid == IMADMIN)
+			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_ACCUSATION, _("啥比"), NULL);
+
+		if (id >= MAX_PLAYERS || !GameServer()->m_apPlayers[id])
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("输入的 ID 无效."), NULL);
-		}
+
 		if (GameServer()->m_apPlayers[id] && GameServer()->Server()->IsClientLogged(id) && itemid > 0 && itemid < 500 && citem > 0)
 			GameServer()->RemItem(id, itemid, citem);
 
@@ -275,12 +271,13 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 	{
 		LastChat();
 		int id = 0, itemid = 0, citem = 0;
+
 		if ((sscanf(Msg->m_pMessage, "/sendmail %d %d %d", &id, &itemid, &citem)) != 3)
 			return GameServer()->SendChatTarget(ClientID, "命令方法: /sendmail <玩家id> <物品id> <物品数量>");
-		if (id >= MAX_PLAYERS)
-		{
+
+		if (id >= MAX_PLAYERS || !GameServer()->m_apPlayers[id])
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("输入的 ID 无效."), NULL);
-		}
+
 		if (GameServer()->m_apPlayers[id] && GameServer()->Server()->IsClientLogged(id) && itemid > 0 && itemid < MAX_ITEM && citem > 0)
 			GameServer()->SendMail(id, 12, itemid, citem);
 		
@@ -308,10 +305,10 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 		int id = 0, citem = 0;
 		if ((sscanf(Msg->m_pMessage, "/givedonate %d %d", &id, &citem)) != 2)
 			return GameServer()->SendChatTarget(ClientID, "命令方法: /givedonate <玩家id> <点券>");
-		if (id >= MAX_PLAYERS)
-		{
+
+		if (id >= MAX_PLAYERS || !GameServer()->m_apPlayers[id])
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("输入的 ID 无效."), NULL);
-		}
+
 		if (GameServer()->m_apPlayers[id] && GameServer()->Server()->IsClientLogged(id))
 		{
 			GameServer()->SendChatTarget(ClientID, "点券已发出.");
@@ -329,12 +326,16 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 	{
 		LastChat();
 		int size = 0;
-		if ((sscanf(Msg->m_pMessage, "/sd %d", &size)) != 1)
-			return GameServer()->SendChatTarget(ClientID, "命令方法: /sd <音效id>");
+		int ID = 0;
+		if ((sscanf(Msg->m_pMessage, "/sd %d %d", &ID, &size)) != 1)
+			return GameServer()->SendChatTarget(ClientID, "命令方法: /sd <ClientID> <音效id>");
+		
+		if (ID >= MAX_PLAYERS || !GameServer()->m_apPlayers[ID])
+			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("输入的 ID 无效."), NULL);
 
 		int soundid = clamp(size, 0, 40);
-		if (GameServer()->GetPlayerChar(ClientID))
-			GameServer()->CreateSound(m_pPlayer->GetCharacter()->m_Pos, soundid);
+		if (GameServer()->GetPlayerChar(ID))
+			GameServer()->CreateSound(GameServer()->GetPlayerChar(ID)->m_Pos, soundid);
 		return;
 	}
 	else if (!strncmp(Msg->m_pMessage, "/jail", 5) && GameServer()->Server()->IsAuthed(ClientID))
@@ -342,13 +343,11 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 		LastChat();
 		int id = 0, JailLength = 0;
 		if ((sscanf(Msg->m_pMessage, "/jail %d %d", &id, &JailLength)) != 2)
-		{
 			return GameServer()->SendChatTarget(ClientID, "使用: /jail <玩家id> <入狱时长>");
-		}
-		if (id >= MAX_PLAYERS)
-		{
+
+		if (id >= MAX_PLAYERS || !GameServer()->m_apPlayers[id])
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("输入的 ID 无效."), NULL);
-		}
+
 		GameServer()->m_apPlayers[id]->AccData()->m_IsJailed = true;
 		GameServer()->m_apPlayers[id]->AccData()->m_Jail = true;
 		GameServer()->m_apPlayers[id]->AccData()->m_Rel = 0;
@@ -361,14 +360,13 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 	{
 		LastChat();
 		int id = 0;
+		
 		if ((sscanf(Msg->m_pMessage, "/unjail %d", &id)) != 1)
-		{
 			return GameServer()->SendChatTarget(ClientID, "使用: /unjail <玩家id>");
-		}
-		if (id >= MAX_PLAYERS)
-		{
+		
+		if (id >= MAX_PLAYERS || !GameServer()->m_apPlayers[id])
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("输入的 ID 无效."), NULL);
-		}
+		
 		GameServer()->m_apPlayers[id]->AccData()->m_IsJailed = false;
 		GameServer()->m_apPlayers[id]->AccData()->m_Jail = false;
 		GameServer()->m_apPlayers[id]->AccData()->m_Rel = 0;
@@ -383,14 +381,13 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 		LastChat();
 		int ClientID_Ban;
 		char Reason[256];
+
 		if (sscanf(Msg->m_pMessage, "/ban %d %s", &ClientID_Ban, Reason) != 2)
-		{
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("封禁用户(管理员): /ban <客户端ID> <原因> "), NULL);
-		}
-		if (ClientID_Ban >= MAX_PLAYERS)
-		{
+
+		if (ClientID_Ban >= MAX_PLAYERS || !GameServer()->m_apPlayers[ClientID_Ban])
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("输入的 ID 无效."), NULL);
-		}
+
 		GameServer()->Server()->Ban_DB(ClientID, ClientID_Ban, Reason);
 
 		return;
@@ -400,9 +397,7 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 		LastChat();
 		char Nick[512];
 		if (sscanf(Msg->m_pMessage, "/unban %s", Nick) != 1)
-		{
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("解封用户(管理员): /unban <昵称>"), NULL);
-		}
 
 		GameServer()->Server()->Unban_DB(ClientID, Nick);
 		return;
@@ -413,9 +408,7 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 		LastChat();
 		char Nick[256], Password[256];
 		if (sscanf(Msg->m_pMessage, "/chpw %s %s", Nick, Password) != 2)
-		{
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("修改密码(管理员): /chpw <昵称> <密码> "), NULL);
-		}
 
 		if (str_length(Password) > 15 || str_length(Password) < 2)
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("密码必须包含 2~15 个字符"), NULL);
@@ -428,9 +421,7 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 		LastChat();
 		char Nick[512];
 		if (sscanf(Msg->m_pMessage, "/offline %s", Nick) != 1)
-		{
 			return GameServer()->SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("设置用户状态为下线(管理员): /offline <昵称>"), NULL);
-		}
 
 		GameServer()->Server()->SetOffline(ClientID, Nick);
 		return;
@@ -446,7 +437,7 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 		GameServer()->Server()->ChangeClientMap(ClientID, MapID);
 		return;
 	}
-	else if (!strncmp(Msg->m_pMessage, "/setclass", 9))
+	else if (!strncmp(Msg->m_pMessage, "/setclass", 9) && GameServer()->Server()->IsAuthed(ClientID))
 	{
 		LastChat();
 		int CID, Class;
@@ -460,7 +451,7 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 		GameServer()->UpdateStats(CID);
 		return;
 	}
-	else if (!strncmp(Msg->m_pMessage, "/givepoint", 10))
+	else if (!strncmp(Msg->m_pMessage, "/givepoint", 10) && GameServer()->Server()->IsAuthed(ClientID))
 	{
 		LastChat();
 		int CID, Point;
@@ -474,7 +465,7 @@ void CCmd::ChatCmd(CNetMsg_Cl_Say *Msg)
 		GameServer()->UpdateStats(CID);
 		return;
 	}
-	else if (!strncmp(Msg->m_pMessage, "/giveskill", 10))
+	else if (!strncmp(Msg->m_pMessage, "/giveskill", 10) && GameServer()->Server()->IsAuthed(ClientID))
 	{
 		LastChat();
 		int CID, Point;

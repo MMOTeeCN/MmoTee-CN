@@ -50,6 +50,8 @@ void CGameContext::Construct(int Resetting)
 	m_WinWaitBoss = 0;
 	m_ChatResponseTargetID = -1;
 	m_BossSummonNum = 0;
+
+	InitClassesUpgrs();
 }
 
 CGameContext::CGameContext(int Resetting)
@@ -674,11 +676,25 @@ void CGameContext::SendBroadcast_LStat(int To, int Priority, int LifeSpan, int T
 	case INCREATEBOSS:
 		Server()->Localization()->Format_L(Buffer, pLanguage, _("你好{str:name}(*′▽｀)ノノ! 你现在可以在投票里挑战Boss了！"), "name", Server()->ClientName(To), NULL), Buffer.append("\n");
 		break;
+	case INSPACE:
+		Server()->Localization()->Format_L(Buffer, pLanguage, _("你进入了太空，注意氧气消耗."), NULL), Buffer.append("\n");
+		break;
+	case EXITSPACE:
+		Server()->Localization()->Format_L(Buffer, pLanguage, _("你离开了太空."), NULL), Buffer.append("\n");
+		break;
+	case SPACEING:
+		Server()->Localization()->Format_L(Buffer, pLanguage, _("吸气...呼气...吸气...呼气..."), NULL), Buffer.append("\n");
+		break;
+	case LOWO2:
+		Server()->Localization()->Format_L(Buffer, pLanguage, _("吸...没氧气了！！！！！！"), NULL), Buffer.append("\n");
+		break;
 	default:
 		Buffer.clear();
 	}
 
-	SendBroadcast_Localization(To, Priority, LifeSpan, _(" \n\n等级: {int:lvl} | 经验: {int:exp}/{int:expl}\n----------------------\n{str:sdata} {int:getl}%\n{str:dataang} 怒气\n----------------------\n{str:mana} 魔能\n生命值: {int:hp}/{int:hpstart}\n\n\n\n\n\n\n\n\n\n\n\n{str:buff}{str:emp}"),
+	int O2 = Server()->GetItemCount(To, MOONO2);
+
+	SendBroadcast_Localization(To, Priority, LifeSpan, _(" \n\n等级: {int:lvl} | 经验: {int:exp}/{int:expl}\n----------------------\n{str:sdata} {int:getl}%\n{str:dataang} 怒气\n----------------------\n{str:mana} 魔能\n生命值: {int:hp}/{int:hpstart}\n氧气: {int:o2}\n\n\n\n\n\n\n\n\n\n\n\n{str:buff}{str:emp}"),
 							   "lvl", &m_apPlayers[To]->AccData()->m_Level,
 							   "exp", &m_apPlayers[To]->AccData()->m_Exp,
 							   "expl", &Optmem,
@@ -688,6 +704,7 @@ void CGameContext::SendBroadcast_LStat(int To, int Priority, int LifeSpan, int T
 							   "mana", LevelString(100, (int)((m_apPlayers[To]->m_Mana * 100.0) / m_apPlayers[To]->GetNeedMana()), 5, ':', ' '),
 							   "hp", &m_apPlayers[To]->m_Health,
 							   "hpstart", &m_apPlayers[To]->m_HealthStart,
+							   "o2", &O2,
 							   "buff", Buffer.buffer(),
 							   "emp", "                                                                                                                                                                    ");
 	Buffer.clear();
@@ -847,7 +864,11 @@ void CGameContext::BossTick()
 			}
 		}
 		if (m_WinWaitBoss == 950)
+		{
 			DeleteBotBoss();
+			if(!GetBossCount())
+				m_WinWaitBoss = 2;
+		}
 	}
 
 	// таймер ожидания игроков для рейда
@@ -1088,7 +1109,7 @@ void CGameContext::OnTick()
 	{
 		SendChatTarget_World(-1, CHATCATEGORY_DEFAULT, "制作者名单:", NULL);
 		SendChatTarget_World(-1, CHATCATEGORY_DEFAULT, "原作者:Kurosio", NULL);
-		SendChatTarget_World(-1, CHATCATEGORY_DEFAULT, "制作者/管理:天上的星星, Flower", NULL);
+		SendChatTarget_World(-1, CHATCATEGORY_DEFAULT, "制作者/管理:天上的星星, Flower, 王小睿, zi_chou", NULL);
 		SendChatTarget_World(-1, CHATCATEGORY_DEFAULT, "服主:Min-jun", NULL);
 		SendChatTarget_World(-1, CHATCATEGORY_DEFAULT, "汉化:MC_TYH、Ninecloud及MMOTEE全体国服玩家", NULL);
 		SendChatTarget_World(-1, CHATCATEGORY_DEFAULT, "地图制作:天际, 卖鱼强", NULL);
@@ -1872,14 +1893,14 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (pReason[0] && isdigit(pReason[0]))
 						Get = atoi(pReason);
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEHEALTH)
-						Get = (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % PRICEHEALTH)/PRICEHEALTH);
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_HEALTH))
+						Get = (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % GetUpgrPrice(ClientID, UPGRADE_HEALTH))/GetUpgrPrice(ClientID, UPGRADE_HEALTH));
 					// 血量的问题不修复
 
 					int GetSize = 0;
 					switch (m_apPlayers[ClientID]->GetClass())
 					{
-					case PLAYERCLASS_ASSASINS:
+					case PLAYERCLASS_ASSASSIN:
 						GetSize = AMAXHEALTH - m_apPlayers[ClientID]->AccUpgrade()->m_Health;
 						break;
 					case PLAYERCLASS_BERSERK:
@@ -1896,25 +1917,23 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (Get < 1 || Get > 1000)
 						Get = 1;
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEHEALTH)
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_HEALTH))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);
 
-					if ((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_Health >= BMAXHEALTH + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_Health >= HMAXHEALTH + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_Health >= AMAXHEALTH + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)))
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Health >= GetUpgrMaxLevel(ClientID, UPGRADE_HEALTH))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
 
 					m_apPlayers[ClientID]->AccUpgrade()->m_Health += Get;
-					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*PRICEHEALTH;
+					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*GetUpgrPrice(ClientID, UPGRADE_HEALTH);
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), "lv", &Get, NULL);
 
 					if (m_apPlayers[ClientID]->GetCharacter())
 					{
 						if (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER)
-							m_apPlayers[ClientID]->m_HealthStart += Get * 40;
+							m_apPlayers[ClientID]->m_HealthStart += Get * 100;
 						else if (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK)
 							m_apPlayers[ClientID]->m_HealthStart += Get * 30;
-						else if (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS)
+						else if (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASSIN)
 							m_apPlayers[ClientID]->m_HealthStart += Get * 30;
 					}
 
@@ -1929,13 +1948,13 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (pReason[0] && isdigit(pReason[0]))
 						Get = atoi(pReason);
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEDMG)
-						Get = (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % PRICEDMG)/PRICEDMG);
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_DMG))
+						Get = (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % GetUpgrPrice(ClientID, UPGRADE_DMG))/GetUpgrPrice(ClientID, UPGRADE_DMG));
 
 					int GetSize = 0;
 					switch (m_apPlayers[ClientID]->GetClass())
 					{
-					case PLAYERCLASS_ASSASINS:
+					case PLAYERCLASS_ASSASSIN:
 						GetSize = AMAXDAMAGE - m_apPlayers[ClientID]->AccUpgrade()->m_Damage;
 						break;
 					case PLAYERCLASS_BERSERK:
@@ -1951,21 +1970,17 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (Get < 1 || Get > 1000)
 						Get = 1;
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEDMG)
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_DMG))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);
 
-					if ((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_Damage >= BMAXDAMAGE + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_Damage >= HMAXDAMAGE + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_Damage >= AMAXDAMAGE + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)))
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Damage >= GetUpgrMaxLevel(ClientID, UPGRADE_DMG))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
 
 					m_apPlayers[ClientID]->AccUpgrade()->m_Damage += Get;
-					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*PRICEDMG;
+					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*GetUpgrPrice(ClientID, UPGRADE_DMG);
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), "lv", &Get, NULL);
 
-					if (((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_Damage > BMAXDAMAGE - 1) ||
-						 (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_Damage > HMAXDAMAGE - 1) ||
-						 (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_Damage > AMAXDAMAGE - 1)) &&
+					if ((m_apPlayers[ClientID]->AccUpgrade()->m_Damage > GetUpgrMaxLevel(ClientID, UPGRADE_DMG) - 1) &&
 						Server()->GetItemCount(ClientID, SNAPDAMAGE) == 0)
 					{
 						// SendMail(ClientID, 4, SNAPDAMAGE, 1);
@@ -1981,16 +1996,14 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 
 				else if (str_comp(aCmd, "uammo") == 0)
 				{
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < PRICEAMMO)
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < GetUpgrPrice(ClientID, UPGRADE_AMMO))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);
 
-					if ((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_Ammo >= BMAXAMMO + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_Ammo >= HMAXAMMO + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_Ammo >= AMAXAMMO + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)))
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Ammo >= GetUpgrMaxLevel(ClientID, UPGRADE_AMMO))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
 
 					m_apPlayers[ClientID]->AccUpgrade()->m_Ammo++;
-					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= PRICEAMMO;
+					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= GetUpgrPrice(ClientID, UPGRADE_AMMO);
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你成功地获得了升级"), NULL);
 
 					int geta = (int)(5 + m_apPlayers[ClientID]->AccUpgrade()->m_Ammo);
@@ -2010,13 +2023,13 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (pReason[0] && isdigit(pReason[0]))
 						Get = atoi(pReason);
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEAMMOREGAN)
-						Get = ((m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % PRICEAMMOREGAN))/PRICEAMMOREGAN);
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_AMMOREGAN))
+						Get = ((m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % GetUpgrPrice(ClientID, UPGRADE_AMMOREGAN)))/GetUpgrPrice(ClientID, UPGRADE_AMMOREGAN));
 
 					int GetSize = 0;
 					switch (m_apPlayers[ClientID]->GetClass())
 					{
-					case PLAYERCLASS_ASSASINS:
+					case PLAYERCLASS_ASSASSIN:
 						GetSize = AMAXAREGEN - m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen;
 						break;
 					case PLAYERCLASS_BERSERK:
@@ -2032,21 +2045,19 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (Get < 1 || Get > 1000)
 						Get = 1;
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEAMMOREGAN)
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_AMMOREGAN))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);
 
-					if ((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen >= BMAXAREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen >= HMAXAREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen >= AMAXAREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)))
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen > GetUpgrMaxLevel(ClientID, UPGRADE_AMMOREGAN))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
 
 					m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen += Get;
-					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*PRICEAMMOREGAN;
+					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*GetUpgrPrice(ClientID, UPGRADE_AMMOREGAN);
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), "lv", &Get, NULL);
 
 					if (((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen > BMAXAREGEN - 1) ||
 						 (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen > HMAXAREGEN - 1) ||
-						 (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen > AMAXAREGEN - 1)) &&
+						 (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASSIN && m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen > AMAXAREGEN - 1)) &&
 						Server()->GetItemCount(ClientID, SNAPAMMOREGEN) == 0)
 					{
 						// SendMail(ClientID, 4, SNAPAMMOREGEN, 1);
@@ -2069,13 +2080,13 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (pReason[0] && isdigit(pReason[0]))
 						Get = atoi(pReason);
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEHANDLE)
-						Get = (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % PRICEHANDLE)/PRICEHANDLE);
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_HANDLE))
+						Get = (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % GetUpgrPrice(ClientID, UPGRADE_HANDLE))/GetUpgrPrice(ClientID, UPGRADE_HANDLE));
 
 					int GetSize = 0;
 					switch (m_apPlayers[ClientID]->GetClass())
 					{
-					case PLAYERCLASS_ASSASINS:
+					case PLAYERCLASS_ASSASSIN:
 						GetSize = AMAXHANDLE - m_apPlayers[ClientID]->AccUpgrade()->m_Speed;
 						break;
 					case PLAYERCLASS_BERSERK:
@@ -2088,27 +2099,24 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (Get > GetSize)
 						Get = GetSize;
 
-					if (Get < PRICEHANDLE || Get > 1000)
+					if (Get < 1 || Get > 1000)
 						Get = 1;
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEHANDLE)
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_HANDLE))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);
 
-					if ((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_Speed >= BMAXHANDLE) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_Speed >= HMAXHANDLE) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_Speed >= AMAXHANDLE))
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Speed > GetUpgrMaxLevel(ClientID, UPGRADE_HANDLE))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
 
 					m_apPlayers[ClientID]->AccUpgrade()->m_Speed += Get;
-					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*PRICEHANDLE;
+					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*GetUpgrPrice(ClientID, UPGRADE_HANDLE);
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), "lv", &Get, NULL);
 
 					if (((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_Speed > BMAXHANDLE - 1) ||
 						 (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_Speed > HMAXHANDLE - 1) ||
-						 (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_Speed > AMAXHANDLE - 1)) &&
+						 (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASSIN && m_apPlayers[ClientID]->AccUpgrade()->m_Speed > AMAXHANDLE - 1)) &&
 						Server()->GetItemCount(ClientID, SNAPHANDLE) == 0)
 					{
-						// SendMail(ClientID, 4, SNAPHANDLE, 1);
 						GiveItem(ClientID, SNAPHANDLE, 1);
 						SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, ("恭喜你成功升到满级,这是你的奖励!"), NULL);
 					}
@@ -2132,17 +2140,20 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (pReason[0] && isdigit(pReason[0]))
 						Get = atoi(pReason);
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEMANA)
-						Get = (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % PRICEMANA)/PRICEMANA);
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_MANA))
+						Get = (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % GetUpgrPrice(ClientID, UPGRADE_MANA))/GetUpgrPrice(ClientID, UPGRADE_MANA));
 
-					if (Get < PRICEMANA || Get > 1000)
+					if (Get < 1 || Get > 1000)
 						Get = 1;
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEMANA)
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_MANA))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);
 
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Mana > GetUpgrMaxLevel(ClientID, UPGRADE_MANA))
+						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
+
 					m_apPlayers[ClientID]->AccUpgrade()->m_Mana += Get;
-					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*PRICEMANA;
+					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*GetUpgrPrice(ClientID, UPGRADE_MANA);
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你成功地升了 {int:lv} 级"), "lv", &Get, NULL);
 
 					UpdateUpgrades(ClientID);
@@ -2152,16 +2163,14 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 
 				else if (str_comp(aCmd, "uspray") == 0)
 				{
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < PRICESPRAY)
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < GetUpgrPrice(ClientID, UPGRADE_SPRAY))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);
 
-					if ((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_Spray >= BMAXSPREAD) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_Spray >= HMAXSPREAD) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_Spray >= AMAXSPREAD))
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Spray > GetUpgrMaxLevel(ClientID, UPGRADE_SPRAY))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
 
 					m_apPlayers[ClientID]->AccUpgrade()->m_Spray++;
-					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= PRICESPRAY;
+					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= GetUpgrPrice(ClientID, UPGRADE_SPRAY);
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 1 级"), NULL);
 
 					UpdateUpgrades(ClientID);
@@ -2176,13 +2185,13 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (pReason[0] && isdigit(pReason[0]))
 						Get = atoi(pReason);
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEHEALTHREGAN)
-						Get = (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % PRICEHEALTHREGAN)/PRICEHEALTHREGAN);
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_HEALTHREGAN))
+						Get = (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade - (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade % GetUpgrPrice(ClientID, UPGRADE_HEALTH))/GetUpgrPrice(ClientID, UPGRADE_HEALTH));
 
 					int GetSize = 0;
 					switch (m_apPlayers[ClientID]->GetClass())
 					{
-					case PLAYERCLASS_ASSASINS:
+					case PLAYERCLASS_ASSASSIN:
 						GetSize = AMAXHPREGEN - m_apPlayers[ClientID]->AccUpgrade()->m_HPRegen;
 						break;
 					case PLAYERCLASS_BERSERK:
@@ -2198,16 +2207,14 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					if (Get < 1 || Get > 1000)
 						Get = 1;
 
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*PRICEHEALTHREGAN)
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < Get*GetUpgrPrice(ClientID, UPGRADE_HEALTHREGAN))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的升级点"), NULL);
 
-					if ((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_HPRegen >= BMAXHPREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_HPRegen >= HMAXHPREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_HPRegen >= AMAXHPREGEN + 3 * Server()->GetItemCount(ClientID, EXTENDLIMIT)))
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_HPRegen > GetUpgrMaxLevel(ClientID, UPGRADE_HEALTHREGAN))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
 
 					m_apPlayers[ClientID]->AccUpgrade()->m_HPRegen += Get;
-					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*PRICEHEALTHREGAN;
+					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= Get*GetUpgrPrice(ClientID, UPGRADE_HEALTHREGAN);
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功提升 {int:lv} 级"), "lv", &Get, NULL);
 
 					UpdateUpgrades(ClientID);
@@ -2217,16 +2224,14 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 
 				else if (str_comp(aCmd, "ushammerrange") == 0)
 				{
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_SkillPoint < HAMMERRANGE)
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_SkillPoint < GetUpgrPrice(ClientID, UPGRADE_HAMMERRANGE))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的技能点"), NULL);
 
-					if ((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_HammerRange > 4) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_HammerRange > 5) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_HammerRange > 7))
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_HammerRange > GetUpgrMaxLevel(ClientID, UPGRADE_HAMMERRANGE))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
 
 					m_apPlayers[ClientID]->AccUpgrade()->m_HammerRange++;
-					m_apPlayers[ClientID]->AccUpgrade()->m_SkillPoint -= HAMMERRANGE;
+					m_apPlayers[ClientID]->AccUpgrade()->m_SkillPoint -= GetUpgrPrice(ClientID, UPGRADE_HAMMERRANGE);
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功地提升了"), NULL);
 
 					UpdateUpgrades(ClientID);
@@ -2236,16 +2241,33 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 
 				else if (str_comp(aCmd, "upasive2") == 0)
 				{
-					if (m_apPlayers[ClientID]->AccUpgrade()->m_SkillPoint < HAMMERRANGE)
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_SkillPoint < GetUpgrPrice(ClientID, UPGRADE_PASIVE2))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的技能点"), NULL);
 
-					if ((m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_BERSERK && m_apPlayers[ClientID]->AccUpgrade()->m_Pasive2 > 4) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER && m_apPlayers[ClientID]->AccUpgrade()->m_Pasive2 > 10) ||
-						(m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS && m_apPlayers[ClientID]->AccUpgrade()->m_Pasive2 > 7))
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Pasive2 > GetUpgrMaxLevel(ClientID, UPGRADE_PASIVE2))
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
 
 					m_apPlayers[ClientID]->AccUpgrade()->m_Pasive2++;
-					m_apPlayers[ClientID]->AccUpgrade()->m_SkillPoint -= HAMMERRANGE;
+					m_apPlayers[ClientID]->AccUpgrade()->m_SkillPoint -= GetUpgrPrice(ClientID, UPGRADE_PASIVE2);
+					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功地提升了"), NULL);
+
+					UpdateUpgrades(ClientID);
+
+					ResetVotes(ClientID, CLMENU);
+
+					return;
+				}
+
+				else if (str_comp(aCmd, "umanaregen") == 0)
+				{
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade < GetUpgrPrice(ClientID, UPGRADE_MANAREGEN))
+						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的技能点"), NULL);
+
+					if (m_apPlayers[ClientID]->AccUpgrade()->m_ManaRegen > GetUpgrMaxLevel(ClientID, UPGRADE_MANAREGEN))
+						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("技能已满级"), NULL);
+
+					m_apPlayers[ClientID]->AccUpgrade()->m_ManaRegen++;
+					m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade -= GetUpgrPrice(ClientID, UPGRADE_MANAREGEN);
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你的技能成功地提升了"), NULL);
 
 					UpdateUpgrades(ClientID);
@@ -2544,7 +2566,9 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 						return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("请稍候..."), NULL);
 
 					m_apPlayers[ClientID]->m_LastChangeInfo = Server()->Tick();
+
 					int SelectItem = m_apPlayers[ClientID]->m_SelectItem;
+
 					Server()->RemItem(ClientID, SelectItem, chartoint(pReason, MAX_COUNT), USEDDROP); // Выброс предметов для всех игроков
 					m_apPlayers[ClientID]->m_SelectItem = -1;
 					ResetVotes(ClientID, AUTH);
@@ -2770,6 +2794,9 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 				{
 					char aBuf[16];
 
+					if(i == IMADMIN) // 无法选中lmao
+						continue;
+
 					str_format(aBuf, sizeof(aBuf), "set%d", i);
 					if (str_comp(aCmd, aBuf) == 0)
 					{
@@ -2799,7 +2826,7 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 					str_format(aBuf, sizeof(aBuf), "bon%d", i);
 					if (str_comp(aCmd, aBuf) == 0)
 					{
-						BuyItem(i, ClientID);
+						BuyItem(i, ClientID, 0, chartoint(pReason, MAX_COUNT));
 						return;
 					}
 
@@ -3022,19 +3049,21 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 	}
 }
 
-void CGameContext::BuyItem(int ItemType, int ClientID, int Type)
+void CGameContext::BuyItem(int ItemType, int ClientID, int Type, int Count)
 {
 	if (!m_apPlayers[ClientID] || !m_apPlayers[ClientID]->GetCharacter() || (m_apPlayers[ClientID]->m_LastChangeInfo && m_apPlayers[ClientID]->m_LastChangeInfo + Server()->TickSpeed() > Server()->Tick()))
 		return;
 
+	Count = max(1, Count);
+
 	m_apPlayers[ClientID]->m_LastChangeInfo = Server()->Tick();
-	if (Server()->GetItemCount(ClientID, ItemType) && ItemType != CLANTICKET && ItemType != BOOKEXPMIN && ItemType != GOLDTICKET && ItemType != MONEYBAG && ItemType != EXTENDLIMIT)
+	if (Server()->GetItemCount(ClientID, ItemType) && ItemType != CLANTICKET && ItemType != BOOKEXPMIN && ItemType != GOLDTICKET && ItemType != MONEYBAG && ItemType != EXTENDLIMIT && ItemType != MOONO2)
 		return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你已购买."), NULL);
 
 	if (m_apPlayers[ClientID]->AccData()->m_Level < Server()->GetItemPrice(ClientID, ItemType, 0))
 		return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有达到规定的等级."), NULL);
 
-	if (Type == 0 && m_apPlayers[ClientID]->AccData()->m_Gold < (unsigned long)Server()->GetItemPrice(ClientID, ItemType, 1))
+	if (Type == 0 && m_apPlayers[ClientID]->AccData()->m_Gold < (unsigned long)Server()->GetItemPrice(ClientID, ItemType, 1)*Count)
 		return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你没有足够的黄金,小穷光蛋."), NULL);
 
 	if (Type == 1 && m_apPlayers[ClientID]->AccData()->m_Donate < Server()->GetItemPrice(ClientID, ItemType, 1))
@@ -3042,18 +3071,22 @@ void CGameContext::BuyItem(int ItemType, int ClientID, int Type)
 
 	if (Type == 0)
 	{
-		int NeedMaterial = Server()->GetItemPrice(ClientID, ItemType, 1);
-		if (Server()->GetMaterials(0) < NeedMaterial)
+		int NeedMaterial = Server()->GetItemPrice(ClientID, ItemType, 1)*Count;
+		if (Server()->GetMaterials(0) < (unsigned long long int)NeedMaterial)
 			return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("店里可没材料."), NULL);
 
-		Server()->SetMaterials(0, Server()->GetMaterials(0) - NeedMaterial);
+		Server()->SetMaterials(0, (unsigned long long int)(Server()->GetMaterials(0) - NeedMaterial));
 	}
 
+	if(ItemType == EXTENDLIMIT)
+		Count = 1;
+
 	if (Type == 0)
-		m_apPlayers[ClientID]->AccData()->m_Gold -= Server()->GetItemPrice(ClientID, ItemType, 1);
+		m_apPlayers[ClientID]->AccData()->m_Gold -= Server()->GetItemPrice(ClientID, ItemType, 1)*Count;
 	else if (Type == 1)
-		m_apPlayers[ClientID]->AccData()->m_Donate -= Server()->GetItemPrice(ClientID, ItemType, 1);
-	GiveItem(ClientID, ItemType, 1);
+		m_apPlayers[ClientID]->AccData()->m_Donate -= Server()->GetItemPrice(ClientID, ItemType, 1)*Count;
+
+	GiveItem(ClientID, ItemType, Count);
 	SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你成功地购买了商品"), NULL);
 
 	if (ItemType == IGUN)
@@ -3192,7 +3225,9 @@ void CGameContext::GiveItem(int ClientID, int ItemID, int Count, int Enchant)
 	if (ClientID > MAX_PLAYERS || ClientID < 0 || !m_apPlayers[ClientID])
 		return;
 
-	if ((ItemID >= AMULETCLEEVER && ItemID <= APAIN) || (ItemID >= SNAPDAMAGE && ItemID <= FORMULAFORRING) || (ItemID >= RINGBOOMER && ItemID <= EARRINGSKWAH) || (ItemID >= BOOKMONEYMIN && ItemID <= RELRINGS) || (ItemID >= CLANBOXEXP && ItemID <= CUSTOMSKIN) || (ItemID >= WHITETICKET && ItemID <= RANDOMCRAFTITEM) || (ItemID >= GUNBOUNCE && ItemID <= LAMPHAMMER) || ItemID == JUMPIMPULS || ItemID == FARMBOX || ItemID == PIZDAMET || (ItemID == WOODCORE || ItemID == MINECORE)) // rare iteems
+	if(ItemID == MOONO2)
+		SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你获得了 {str:items}x{int:counts}"), "name", Server()->ClientName(ClientID), "items", Server()->GetItemName(ClientID, ItemID, false), "counts", &Count, NULL);
+	else if ((ItemID >= AMULETCLEEVER && ItemID <= APAIN) || (ItemID >= SNAPDAMAGE && ItemID <= FORMULAFORRING) || (ItemID >= RINGBOOMER && ItemID <= EARRINGSKWAH) || (ItemID >= BOOKMONEYMIN && ItemID <= RELRINGS) || (ItemID >= CLANBOXEXP && ItemID <= CUSTOMSKIN) || (ItemID >= WHITETICKET && ItemID <= RANDOMCRAFTITEM) || (ItemID >= GUNBOUNCE && ItemID <= LAMPHAMMER) || ItemID == JUMPIMPULS || ItemID == FARMBOX || ItemID == PIZDAMET || (ItemID == WOODCORE || ItemID == MINECORE)) // rare iteems
 	{
 		SendChatTarget_Localization(-1, CHATCATEGORY_DEFAULT, _("{str:name} 获得了 {str:items}x{int:counts}"), "name", Server()->ClientName(ClientID), "items", Server()->GetItemName(ClientID, ItemID, false), "counts", &Count, NULL);
 
@@ -3205,12 +3240,23 @@ void CGameContext::GiveItem(int ClientID, int ItemID, int Count, int Enchant)
 			SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("[专长] {str:items}"), "items", Server()->GetItemName(ClientID, ItemID), NULL);
 		else if(ItemID == KILLQUEST || ItemID == CHALLENGEQUEST)
 		{
-			int Count = Server()->GetItemCount(ClientID, ItemID);
-			int Need = GetDailyQuestNeed((ItemID == KILLQUEST) ? EDailyQuests::QUESTTYPE2_KILL : EDailyQuests::QUESTTYPE3_CHALLENGE, (ItemID == KILLQUEST) ? 0 : EDailyQuests::CHALLENGE4);
-			SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("[每日任务] {str:items}[{int:num}/{int:need}]"), 
-			"items", Server()->GetItemName(ClientID, ItemID), 
-			"num", &Count,
-			"need", &Need);
+			if(!Server()->GetItemSettings(ClientID, SCHAT))
+			{
+				int Count = Server()->GetItemCount(ClientID, ItemID);
+				int Need = GetDailyQuestNeed((ItemID == KILLQUEST) ? EDailyQuests::QUESTTYPE2_KILL : EDailyQuests::QUESTTYPE3_CHALLENGE, (ItemID == KILLQUEST) ? 0 : EDailyQuests::CHALLENGE4);
+				if(Count % 50 == 0 && Count < Need)
+					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("[每日任务] {str:item} [{int:num}/{int:need}]"), 
+					"item", Server()->GetItemName(ClientID, ItemID), 
+					"num", &Count,
+					"need", &Need);
+				
+				if(Count == Need)
+				{
+					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, (ItemID == KILLQUEST) ? _("[每日任务] 击杀任务已完成！") : _("[每日任务] 挑战任务已完成！"));
+					if(m_apPlayers[ClientID]->GetCharacter())
+						CreateSound(m_apPlayers[ClientID]->GetCharacter()->m_Pos, SOUND_CTF_CAPTURE);
+				}
+			}
 		}
 		else
 			SendChatTarget_Localization(-1, CHATCATEGORY_DEFAULT, _("{str:name} 获得了 {str:items}"), "name", Server()->ClientName(ClientID), "items", Server()->GetItemName(ClientID, ItemID), NULL);
@@ -3248,7 +3294,7 @@ void CGameContext::GiveItem(int ClientID, int ItemID, int Count, int Enchant)
 	Server()->GiveItem(ClientID, ItemID, Count, Settings, Enchant);
 }
 
-void CGameContext::RemItem(int ClientID, int ItemID, int Count)
+void CGameContext::RemItem(int ClientID, int ItemID, unsigned long long Count)
 {
 	if (ClientID > MAX_PLAYERS || ClientID < 0 || !m_apPlayers[ClientID])
 		return;
@@ -3829,8 +3875,21 @@ void CGameContext::CreateItem(int ClientID, int ItemID, int Count)
 		Server()->RemItem(ClientID, SKELETSBONE, 100, -1);
 	}
 	break;
+	case SFUNNEL:
+	{
+		if (Server()->GetItemCount(ClientID, SFUNNEL))
+			return SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你已经制作过浮游炮了，不可重复制作"), NULL);
+		Count = 1;
+		if (Server()->GetItemCount(ClientID, DRAGONORE) < 50000000 || Server()->GetItemCount(ClientID, LIGHTNINGLASER) < 1 || Server()->GetItemCount(ClientID, ELECTROLASER) < 1)
+		{
+			SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("为了合成你需要 {str:need}"), "need", "龙矿x50000000, 闪电模块x1, 电子模块x1", NULL);
+			return;
+		}
+		
+		Server()->RemItem(ClientID, DRAGONORE, 50000000, -1);
 	}
-
+	break;
+	}
 	SendChatTarget_Localization(-1, CHATCATEGORY_DEFAULT, _("{str:name} 合成了物品 {str:item}x{int:coun}"),
 								"name", Server()->ClientName(ClientID), "item", Server()->GetItemName(ClientID, ItemID, false), "coun", &Count, NULL);
 	GiveItem(ClientID, ItemID, Count, 0);
@@ -4001,8 +4060,8 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 			{
 				if (Server()->GetItemCount(ClientID, MATERIAL))
 				{
-					int Count = Server()->GetItemCount(ClientID, MATERIAL);
-					int Gold = Count / 5;
+					unsigned long long int Count = Server()->GetItemCount(ClientID, MATERIAL);
+					unsigned long long int Gold = Count / 5;
 					SendChatTarget_Localization(ClientID, CHATCATEGORY_DEFAULT, _("你向商店提供了 {int:count} 个材料，获得了 {int:money} 黄金"),
 												"count", &Count, "money", &Gold, NULL);
 
@@ -4030,6 +4089,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 				CreateNewShop(ClientID, HOOKDAMAGE, 3, 18, 100);
 				CreateNewShop(ClientID, GUNAUTO, 3, 20, 150);
 				CreateNewShop(ClientID, HAMMERAUTO, 3, 20, 1200);
+				CreateNewShop(ClientID, SAUTOPICK, 3, 20, 3000);
 
 				CreateNewShop(ClientID, EXGUN, 3, 25, 1800);
 				CreateNewShop(ClientID, EXSHOTGUN, 3, 30, 10000);
@@ -4060,7 +4120,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 				CreateNewShop(ClientID, RESETINGUPGRADE, 3, 1, 30000);
 				CreateNewShop(ClientID, RESETINGSKILL, 3, 1, 8000);
 				CreateNewShop(ClientID, WHITETICKET, 3, 100, 20000);
-				CreateNewShop(ClientID, MOONO2, 3, 100, 5);
+				CreateNewShop(ClientID, MOONO2, 2, 100, 5);
 				CreateNewShop(ClientID, BOOKEXPMIN, 2, 1, 100);
 				CreateNewShop(ClientID, CLANTICKET, 2, 15, 2500);
 
@@ -4194,6 +4254,9 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 			CreateNewShop(ClientID, TITLECR, 1, 0, 0);
 			CreateNewShop(ClientID, TITLEPC, 1, 0, 0);
 			CreateNewShop(ClientID, TITLEGLF, 1, 0, 0);
+			CreateNewShop(ClientID, DONATETITLEWORK, 1, 0, 0);
+			CreateNewShop(ClientID, DONATETITLEBIGHAMMER, 1, 0, 0);
+			CreateNewShop(ClientID, DONATETITLENOCLIPHAMMER, 1, 0, 0);
 
 			AddBack(ClientID);
 			return;
@@ -4220,7 +4283,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 			CreateNewShop(ClientID, RINGNOSELFDMG, 1, 0, 0);
 			CreateNewShop(ClientID, CUSTOMCOLOR, 1, 0, 0);
 			EyeEmoteSettings(ClientID, MODULEEMOTE, "semote");
-			SkillSettings(ClientID, SFUNNEL, "sskillfunnel");
+			CreateNewShop(ClientID, SAUTOPICK, 1, 0, 0);
 			AddVote("", "null", ClientID);
 			AddVote_Localization(ClientID, "null", "☪ {str:psevdo}", "psevdo", LocalizeText(ClientID, "锤子"));
 			CreateNewShop(ClientID, HAMMERAUTO, 1, 0, 0);
@@ -4307,19 +4370,21 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 			AddVote_Localization(ClientID, "null", "统计数据(升级点 - {int:up} / 技能点 - {int:sp})", "up", &m_apPlayers[ClientID]->AccUpgrade()->m_Upgrade, "sp", &m_apPlayers[ClientID]->AccUpgrade()->m_SkillPoint);
 			AddVoteMenu_Localization(ClientID, GETUP, MENUONLY, _("-> 获取升级点"));
 			AddVote("············", "null", ClientID);
+			int PlayerClass = m_apPlayers[ClientID]->GetClass() - PLAYERCLASS_ASSASSIN;
 			AddVote_Localization(ClientID, "null", "♛ {str:psevdo}", "psevdo", LocalizeText(ClientID, "升级选项"));
-			AddVote_Localization(ClientID, "uhealth", "☞ [{int:sum}] 生命值上限 +40(20升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Health, "bonus", m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER ? "C+10" : "C+0");
-			AddVote_Localization(ClientID, "udamage", "☞ [{int:sum}] 伤害 +1(50升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Damage, "bonus", "C+0");
-			AddVote_Localization(ClientID, "uammoregen", "☞ [{int:sum}] 子弹回复速度 +1(50升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen, "bonus", "C+0");
-			AddVote_Localization(ClientID, "uammo", "☞ [{int:sum}] 子弹 +1(100升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Ammo, "bonus", "C+0");
-			AddVote_Localization(ClientID, "uhpregen", "☞ [{int:sum}] 生命恢复速度 +1(20升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_HPRegen, "bonus", "C+0");
-			AddVote_Localization(ClientID, "uhandle", "☞ [{int:sum}] 射速 +1(50升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Speed, "bonus", "C+0");
-			AddVote_Localization(ClientID, "umana", "☞ [{int:sum}] 魔能 +1(10升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Mana, "bonus", "C+0");
-			AddVote_Localization(ClientID, "uspray", "☞ [{int:sum}] 子弹散射 +1(100升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Spray, "bonus", "C+0");
+			AddVote_Localization(ClientID, "uhealth", "☞ [{int:sum}] 生命值上限 +40 ({int:num}升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Health, "num", &m_aaUpgrPrice[PlayerClass][UPGRADE_HEALTH], "bonus", m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER ? "C+60" : "C+0");
+			AddVote_Localization(ClientID, "udamage", "☞ [{int:sum}] 伤害 +1({int:num}升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Damage, "num", &m_aaUpgrPrice[PlayerClass][UPGRADE_DMG], "bonus", "C+0");
+			AddVote_Localization(ClientID, "uammoregen", "☞ [{int:sum}] 子弹回复速度 +1({int:num}升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_AmmoRegen, "num", &m_aaUpgrPrice[PlayerClass][UPGRADE_AMMOREGAN], "bonus", "C+0");
+			AddVote_Localization(ClientID, "uammo", "☞ [{int:sum}] 子弹 +1({int:num}升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Ammo, "num", &m_aaUpgrPrice[PlayerClass][UPGRADE_AMMO], "bonus", "C+0");
+			AddVote_Localization(ClientID, "uhpregen", "☞ [{int:sum}] 生命恢复速度 +1({int:num}升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_HPRegen, "num", &m_aaUpgrPrice[PlayerClass][UPGRADE_HEALTHREGAN], "bonus", "C+0");
+			AddVote_Localization(ClientID, "uhandle", "☞ [{int:sum}] 射速 +1({int:num}升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Speed, "num", &m_aaUpgrPrice[PlayerClass][UPGRADE_HANDLE], "bonus", "C+0");
+			AddVote_Localization(ClientID, "umana", "☞ [{int:sum}] 魔能 +1({int:num}升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Mana, "num", &m_aaUpgrPrice[PlayerClass][UPGRADE_MANA], "bonus", "C+0");
+			AddVote_Localization(ClientID, "umanaregen", "☞ [{int:sum}] 魔能恢复速度 +1({int:num}升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_ManaRegen, "num", &m_aaUpgrPrice[PlayerClass][UPGRADE_MANAREGEN], "bonus", "C+0");
+			AddVote_Localization(ClientID, "uspray", "☞ [{int:sum}] 子弹散射 +1({int:num}升级点 {str:bonus})", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Spray, "num", &m_aaUpgrPrice[PlayerClass][UPGRADE_SPRAY], "bonus", "C+0");
 			AddVote("············", "null", ClientID);
 			AddVote_Localization(ClientID, "null", "♞ {str:psevdo}", "psevdo", LocalizeText(ClientID, "职业被动技"));
 
-			int Need = HAMMERRANGE;
+			int Need = GetUpgrPrice(ClientID, UPGRADE_HAMMERRANGE);
 			if (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_HEALER)
 			{
 				AddVote_Localization(ClientID, "ushammerrange", "☞ ({int:need}技能点) 生命值 +4% ({str:act}) ({int:sum})", "need", &Need, "act",
@@ -4327,7 +4392,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 				AddVote_Localization(ClientID, "upasive2", "☞ ({int:need}技能点) 伤害减免 +2% ({str:act}) ({int:sum})", "need", &Need, "act",
 									 m_apPlayers[ClientID]->AccUpgrade()->m_Pasive2 ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_Pasive2);
 			}
-			else if (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASINS)
+			else if (m_apPlayers[ClientID]->GetClass() == PLAYERCLASS_ASSASSIN)
 			{
 				AddVote_Localization(ClientID, "ushammerrange", "☞ ({int:need}技能点) 暴击率 +6.67% ({str:act}) ({int:sum})", "need", &Need, "act",
 									 m_apPlayers[ClientID]->AccUpgrade()->m_HammerRange ? "✔" : "x", "sum", &m_apPlayers[ClientID]->AccUpgrade()->m_HammerRange);
@@ -4352,6 +4417,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 			AddVote_Localization(ClientID, "uskillsword", "☞ (20技能点) 光剑 ({str:act})", "act", Server()->GetItemCount(ClientID, SSWORD) ? "1 魔能(持续消耗) ✔" : "x");
 			SkillSettings(ClientID, SSWORD, "sskillsword");
 			SkillSettings(ClientID, SHEALSUMMER, "sskillsummer");
+			SkillSettings(ClientID, SFUNNEL, "sskillfunnel");
 			AddBack(ClientID);
 			return;
 		}
@@ -4787,7 +4853,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 			if (Server()->GetItemPrice(ClientID, SelectItem, 1) > 0 && m_apPlayers[ClientID]->GetWork())
 				AddVote_Localization(ClientID, "sellitem", "▹ 卖出该物品");
 
-			if (Server()->GetItemType(ClientID, SelectItem) != 6)
+			if (Server()->GetItemType(ClientID, SelectItem) != 6 && SelectItem != SFUNNEL)
 				AddVote_Localization(ClientID, "dropitem", "▹ 丢掉该物品 (╯°Д°)╯");
 
 			if (Server()->GetItemType(ClientID, SelectItem) == 15 || Server()->GetItemType(ClientID, SelectItem) == 16 || Server()->GetItemType(ClientID, SelectItem) == 17)
@@ -5034,7 +5100,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 			if(m_apPlayers[ClientID]->m_SelectQuest == EDailyQuests::QUESTTYPE2_KILL)
 			{
 				if(Server()->GetItemSettings(ClientID, KILLQUEST) == GetDailyID())
-					AddVote_Localization(ClientID, "que0", "- 挑战任务已完成");
+					AddVote_Localization(ClientID, "que0", "- 击杀任务已完成");
 				else
 				{
 					int Have = Server()->GetItemCount(ClientID, KILLQUEST);
@@ -5150,6 +5216,7 @@ void CGameContext::ResetVotes(int ClientID, int Type)
 					AddNewCraftVote(ClientID, "锡矿x50, 精铁x300", COREBASE);
 					AddNewCraftVote(ClientID, "核心基座x2, 木头x500, 金券x300", WOODCORE);
 					AddNewCraftVote(ClientID, "核心基座x2, 龙矿x500, 金券x500", MINECORE);
+					AddNewCraftVote(ClientID, "龙矿x50000000, 电子+闪电模块x1", SFUNNEL);
 				}
 				else if (m_apPlayers[ClientID]->m_SortedSelectCraft == 3)
 				{
@@ -5898,7 +5965,7 @@ const char *CGameContext::LocalizeText(int ClientID, const char *pText)
 }
 
 /* Предметы все функции */
-void CGameContext::UseItem(int ClientID, int ItemID, int Count, int Type)
+void CGameContext::UseItem(int ClientID, int ItemID, unsigned long long int Count, int Type)
 {
 	CPlayer *pPlayer = m_apPlayers[ClientID];
 	if (!pPlayer || !pPlayer->GetCharacter())
@@ -6358,6 +6425,21 @@ void CGameContext::RefreshDailyQuest(tm *pTime, bool Reset)
 	m_DailyQuest.m_RandomNumber = rand();
 	if(Reset)
 	{
+		for (int i = 0; i < MAX_PLAYERS; i++)
+		{
+			CPlayer *pP = m_apPlayers[i];
+			if(!pP || pP->IsBot())
+				continue;
+
+			Server()->RemItem(i, COLLECTQUEST, Server()->GetItemCount(i, COLLECTQUEST), -1);
+			Server()->RemItem(i, KILLQUEST, Server()->GetItemCount(i, KILLQUEST), -1);
+			Server()->RemItem(i, CHALLENGEQUEST, Server()->GetItemCount(i, CHALLENGEQUEST), -1);
+			Server()->SetItemSettingsCount(i, COLLECTQUEST, 0);
+			Server()->SetItemSettingsCount(i, KILLQUEST, 0);
+			Server()->SetItemSettingsCount(i, CHALLENGEQUEST, 0);
+
+			UpdateStats(i);
+		}
 		Server()->Execute("UPDATE tw_uItems SET item_count = 1,item_settings = 0 WHERE il_id = 159");
 		Server()->Execute("UPDATE tw_uItems SET item_count = 0,item_settings = 0 WHERE il_id = 164");
 		Server()->Execute("UPDATE tw_uItems SET item_count = 0,item_settings = 0 WHERE il_id = 165");
@@ -6381,7 +6463,7 @@ int CGameContext::GetDailyQuestItem(int Quest, int SubType)
 		case EDailyQuests::COLLECT1:
 		{
 			int Items[] = {POTATO, TOMATE, CARROT, CABBAGE};
-			return Items[RandomNumber%4];
+			return Items[(long long int)RandomNumber%4];
 		}
 
 		case EDailyQuests::COLLECT2:
@@ -6409,7 +6491,7 @@ int CGameContext::GetDailyQuestItem(int Quest, int SubType)
 	else if(Quest == EDailyQuests::QUESTTYPE2_KILL)
 	{
 		int Items[] = {BOT_L1MONSTER, BOT_L2MONSTER, BOT_L3MONSTER, BOT_BOSSSLIME, BOT_BOSSPIGKING, BOT_BOSSVAMPIRE, BOT_BOSSGUARD};
-		return Items[(RandomNumber*17)%7];
+		return Items[((long long int)(RandomNumber/17))%7];
 	}
 	else if(Quest == EDailyQuests::QUESTTYPE3_CHALLENGE)
 	{
@@ -6436,7 +6518,7 @@ int CGameContext::GetDailyQuestItem(int Quest, int SubType)
 		case EDailyQuests::CHALLENGE4:
 		{
 			int Items[] = {BOT_L1MONSTER, BOT_L2MONSTER, BOT_L3MONSTER, BOT_BOSSSLIME, BOT_BOSSPIGKING, BOT_BOSSVAMPIRE, BOT_BOSSGUARD, BOT_BOSSZOMBIE, BOT_BOSSSKELET};
-			return Items[(RandomNumber*18)%9];
+			return Items[((long long int)(RandomNumber/18))%9];
 		}
 
 		default:
@@ -6473,7 +6555,7 @@ int CGameContext::GetDailyQuestNeed(int Quest, int SubType)
 	}
 	else if(Quest == EDailyQuests::QUESTTYPE2_KILL)
 	{
-		return (RandomNumber*17)%500+500;
+		return (((long long int)RandomNumber/2))%500+500;
 	}
 	else if(Quest == EDailyQuests::QUESTTYPE3_CHALLENGE)
 	{
@@ -6489,7 +6571,7 @@ int CGameContext::GetDailyQuestNeed(int Quest, int SubType)
 			return (RandomNumber%23 + 8) * 10000000;
 
 		case EDailyQuests::CHALLENGE4:
-			return (RandomNumber%23 + 19) * 200;
+			return (RandomNumber%23 + 19) * 4000;
 
 		default:
 			break;
@@ -6556,4 +6638,142 @@ int CGameContext::GetDailyID()
 {
 	tm *pTime = GetRealTime();
 	return pTime->tm_year + pTime->tm_mday + pTime->tm_mon + pTime->tm_yday + pTime->tm_wday + pTime->tm_mday;
+}
+
+int CGameContext::GetMoreLevel(int ClientID)
+{
+	return (3 * Server()->GetItemCount(ClientID, EXTENDLIMIT));
+}
+
+int CGameContext::GetUpgrMaxLevel(int ClientID, int Upgr, bool MoreLevel)
+{
+	if(!m_apPlayers[ClientID])
+		return 1;
+
+	int Class = m_apPlayers[ClientID]->GetClass();
+	
+	Class -= PLAYERCLASS_ASSASSIN;
+
+	// Avoid crash
+	Class = clamp(Class, 0, int(NUM_PLAYERCLASS) - 1);
+	Upgr = clamp(Upgr, 0, int(NUM_UPGRADE) - 1);
+
+	int Return = m_aaUpgrMaxLevel[Class][Upgr];
+	if(Return == -1)
+		return 5000; // Bruh don't too big.
+	
+	if(Upgr == UPGRADE_SPRAY)
+		MoreLevel = false;
+
+	return Return + (MoreLevel ? GetMoreLevel(ClientID) : 0);
+}
+
+void CGameContext::SetUpgrMaxLevel(int Class, int Upgr, int Level)
+{
+	Class -= PLAYERCLASS_ASSASSIN;
+
+	Class = clamp(Class, 0, int(NUM_PLAYERCLASS) - 1);
+	Upgr = clamp(Upgr, 0, int(NUM_UPGRADE) - 1);
+	m_aaUpgrMaxLevel[Class][Upgr] = Level;
+}
+
+int CGameContext::GetUpgrPrice(int ClientID, int Upgr)
+{
+	if(!m_apPlayers[ClientID])
+		return 1;
+
+	int Class = m_apPlayers[ClientID]->GetClass();
+
+	Class -= PLAYERCLASS_ASSASSIN;
+
+	// Avoid crash
+	Class = clamp(Class, 0, int(NUM_PLAYERCLASS) - 1);
+	Upgr = clamp(Upgr, 0, int(NUM_UPGRADE) - 1);
+
+	return m_aaUpgrPrice[Class][Upgr];
+}
+
+void CGameContext::SetUpgrPrice(int Class, int Upgr, int Price)
+{
+	Class -= PLAYERCLASS_ASSASSIN;
+
+	Class = clamp(Class, 0, int(NUM_PLAYERCLASS) - 1);
+	Upgr = clamp(Upgr, 0, int(NUM_UPGRADE) - 1);
+	m_aaUpgrPrice[Class][Upgr] = Price;
+}
+
+// DIRTY!!! DIRTY!! AHHHHHHHHH
+void CGameContext::InitClassesUpgrs()
+{
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_HEALTH, AMAXHEALTH);
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_DMG, AMAXDAMAGE);
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_AMMOREGAN, AMAXAREGEN);
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_AMMO, AMAXAMMO);
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_HEALTHREGAN, AMAXHEALTH);
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_HANDLE, AMAXHANDLE);
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_MANA, -1);
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_SPRAY, AMAXSPREAD);
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_HAMMERRANGE, AMAXHAMMERRANGE);
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_PASIVE2, AMAXPASIVE2);
+	SetUpgrMaxLevel(PLAYERCLASS_ASSASSIN, UPGRADE_MANAREGEN, AMAXMANAREGEN);
+
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_HEALTH, PRICEHEALTH);
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_DMG, PRICEDMG);
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_AMMOREGAN, PRICEAMMOREGAN);
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_AMMO, PRICEAMMO);
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_HEALTHREGAN, PRICEHEALTHREGAN);
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_HANDLE, PRICEHANDLE);
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_MANA, PRICEMANA);
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_SPRAY, PRICESPRAY);
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_HAMMERRANGE, PRICEHAMMERRANGE);
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_PASIVE2, PRICEHAMMERRANGE);
+	SetUpgrPrice(PLAYERCLASS_ASSASSIN, UPGRADE_MANAREGEN, PRICEMANAREGEN);
+
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_HEALTH, BMAXHEALTH);
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_DMG, BMAXDAMAGE);
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_AMMOREGAN, BMAXAREGEN);
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_AMMO, BMAXAMMO);
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_HEALTHREGAN, BMAXHEALTH);
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_HANDLE, BMAXHANDLE);
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_MANA, -1);
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_SPRAY, BMAXSPREAD);
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_HAMMERRANGE, BMAXHAMMERRANGE);
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_PASIVE2, BMAXPASIVE2);
+	SetUpgrMaxLevel(PLAYERCLASS_BERSERK, UPGRADE_MANAREGEN, BMAXMANAREGEN);
+
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_HEALTH, PRICEHEALTH);
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_DMG, PRICEDMG);
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_AMMOREGAN, PRICEAMMOREGAN);
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_AMMO, PRICEAMMO);
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_HEALTHREGAN, PRICEHEALTHREGAN);
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_HANDLE, PRICEHANDLE);
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_MANA, PRICEMANA);
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_SPRAY, PRICESPRAY);
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_HAMMERRANGE, PRICEHAMMERRANGE);
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_PASIVE2, PRICEHAMMERRANGE);
+	SetUpgrPrice(PLAYERCLASS_BERSERK, UPGRADE_MANAREGEN, PRICEMANAREGEN);
+
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_HEALTH, HMAXHEALTH);
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_DMG, HMAXDAMAGE);
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_AMMOREGAN, HMAXAREGEN);
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_AMMO, HMAXAMMO);
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_HEALTHREGAN, HMAXHEALTH);
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_HANDLE, HMAXHANDLE);
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_MANA, -1);
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_SPRAY, HMAXSPREAD);
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_HAMMERRANGE, HMAXHAMMERRANGE);
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_PASIVE2, HMAXPASIVE2);
+	SetUpgrMaxLevel(PLAYERCLASS_HEALER, UPGRADE_MANAREGEN, HMAXMANAREGEN);
+
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_HEALTH, PRICEHEALTH);
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_DMG, PRICEDMG);
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_AMMOREGAN, PRICEAMMOREGAN);
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_AMMO, PRICEAMMO);
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_HEALTHREGAN, PRICEHEALTHREGAN);
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_HANDLE, PRICEHANDLE);
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_MANA, PRICEMANA);
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_SPRAY, PRICESPRAY);
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_HAMMERRANGE, PRICEHAMMERRANGE);
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_PASIVE2, PRICEHAMMERRANGE);
+	SetUpgrPrice(PLAYERCLASS_HEALER, UPGRADE_MANAREGEN, PRICEMANAREGEN);
 }

@@ -185,6 +185,7 @@ CREATE TABLE `tw_uClass` (
   `Mana` int(11) NOT NULL DEFAULT '0',
   `HammerRange` int(11) NOT NULL DEFAULT '0',
   `Pasive2` int(11) NOT NULL DEFAULT '0',
+  `ManaRegen` int(11) NOT NULL DEFAULT '0',
   PRIMARY KEY (`UserID`) USING BTREE,
   KEY `Username` (`Username`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=COMPACT;
@@ -391,7 +392,12 @@ INSERT INTO `tw_uItemList` VALUES
 (166,5,'被污染的守卫头','用于合成'),
 (167,1,'武器模块: 电子','- 我最喜欢的“法术”'),
 (168,1,'武器模块: 闪电','- ..我搞不懂为什么这不需要魔能'),
-(169,1,'神器-浮游炮','- 哥们你走错片场了吧');
+(169,1,'神器-浮游炮','- 哥们你走错片场了吧'),
+(170,1,'自动拾取','- 自动拾取掉落物'),
+(171,1,'我是管理员','- 我不能把东西丢给别人了'),
+(172,10,'收割机','- 最新联合收割机 不用拿上工具了'),
+(173,10,'大锤子','- 攻击范围增加100%'),
+(174,10,'穿透锤','- 让你的锤子无视地形');
 /*!40000 ALTER TABLE `tw_uItemList` ENABLE KEYS */;
 UNLOCK TABLES
 
@@ -588,7 +594,12 @@ INSERT INTO `tw_uItemList_en` VALUES
 (166,5,'DirtyGuardHead','- Craft'),
 (167,1,'Weapon Module: Electro','- My favorite'),
 (168,1,'Weapon Module: Lightning','- ..Too expensive'),
-(169,1,'Funnel','- Bruh');
+(169,1,'Funnel','- Bruh'),
+(170,1,'Auto Pick','- Auto pickup drops'),
+(171,1,'I am ADMIN','- I cant drop anything anymore'),
+(172,10,'Donate Title-Farm','- No need to pick'),
+(173,10,'Big Hammer','- 攻击范围增加100%'),
+(174,10,'No-clip Hammer','- 让你的锤子无视地形');
 -- (131,10,'Title Moon','- Special Title for Mid-Autumn Festival'),
 -- (132,5,'Activity Item','For Crafting');
 /*!40000 ALTER TABLE `tw_uItemList_en` ENABLE KEYS */;

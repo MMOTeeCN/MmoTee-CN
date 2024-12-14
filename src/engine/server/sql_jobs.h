@@ -91,11 +91,11 @@ class CGameServerCmd_UseItem : public CServer::CGameServerCmd
 private:
 	int m_ClientID;
 	int m_ItemID;
-	int m_Count;
+	unsigned long long int m_Count;
 	int m_Type;
 	
 public:
-	CGameServerCmd_UseItem(int ClientID, int ItemID, int Count, int Type)
+	CGameServerCmd_UseItem(int ClientID, int ItemID, unsigned long long int Count, int Type)
 	{
 		m_ClientID = ClientID;
 		m_ItemID = ItemID;
@@ -637,11 +637,11 @@ private:
 	CServer* m_pServer;
 	int m_ItemID;
 	int m_ClientID;
-	int m_Count;
+	unsigned long long int m_Count;
 	int m_Type;
 	
 public:
-	CSqlJob_Server_RemItems(CServer* pServer, int ItemID, int ClientID, int Count, int Type)
+	CSqlJob_Server_RemItems(CServer* pServer, int ItemID, int ClientID, unsigned long long int Count, int Type)
 	{
 		m_pServer = pServer;
 		m_ItemID = ItemID; 
@@ -1246,6 +1246,7 @@ public:
 				m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Mana = pSqlServer->GetResults()->getInt("Mana");
 				m_pServer->m_aClients[m_ClientID].AccUpgrade.m_HammerRange = pSqlServer->GetResults()->getInt("HammerRange");
 				m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Pasive2 = pSqlServer->GetResults()->getInt("Pasive2");
+				m_pServer->m_aClients[m_ClientID].AccUpgrade.m_ManaRegen = pSqlServer->GetResults()->getInt("ManaRegen");
 
 				CServer::CGameServerCmd *pCmd1 = new CGameServerCmd_SendChatTarget_Language(m_ClientID, CHATCATEGORY_DEFAULT, _("登录成功.按下esc界面中的“开始游戏”进入."));
 				m_pServer->AddGameServerCmd(pCmd1);
@@ -1342,11 +1343,12 @@ public:
 					"Spray = '%d', "
 					"Mana = '%d', "
 					"HammerRange = '%d', "
-					"Pasive2 = '%d' "
+					"Pasive2 = '%d', "
+					"ManaRegen = '%d' "
 					"WHERE UserID = '%d';"
 					, pSqlServer->GetPrefix(), m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Upgrade, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_SkillPoint, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Speed, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Health, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Damage,
 					m_pServer->m_aClients[m_ClientID].AccUpgrade.m_HPRegen, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_AmmoRegen, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Ammo, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Spray, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Mana, 
-					m_pServer->m_aClients[m_ClientID].AccUpgrade.m_HammerRange, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Pasive2, m_pServer->m_aClients[m_ClientID].m_UserID);
+					m_pServer->m_aClients[m_ClientID].AccUpgrade.m_HammerRange, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_Pasive2, m_pServer->m_aClients[m_ClientID].AccUpgrade.m_ManaRegen, m_pServer->m_aClients[m_ClientID].m_UserID);
 				
 				pSqlServer->executeSqlQuery(aBuf);
 			}
@@ -1571,8 +1573,8 @@ public:
 		{	
 			str_format(aBuf, sizeof(aBuf), 
 				"INSERT INTO %s_Users "
-				"(Username, Nick, PasswordHash, Email, RegisterIp) "
-				"VALUES ('%s', '%s', '%s', '%s', '%s');"
+				"(Username, Nick, PasswordHash, Email, RegisterIp, Class) "
+				"VALUES ('%s', '%s', '%s', '%s', '%s', 0);"
 				, pSqlServer->GetPrefix()
 				, m_sName.ClrStr(), m_sNick.ClrStr(), m_sPasswordHash.ClrStr(), m_sEmail.ClrStr(), aAddrStr);
 			pSqlServer->executeSql(aBuf);

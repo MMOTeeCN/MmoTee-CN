@@ -85,7 +85,7 @@ CCharacter::CCharacter(CGameWorld *pWorld)
 	m_PoisonTick = 0;
 	m_HealTick = 0;
 	m_InAirTick = 0;
-	m_InWater = 0;
+	m_InWater = false;
 	m_BonusTick = 0;
 	m_WaterJumpLifeSpan = 0;
 	m_NinjaVelocityBuff = 0;
@@ -93,6 +93,7 @@ CCharacter::CCharacter(CGameWorld *pWorld)
 	m_NinjaAmmoBuff = 0;
 
 	m_SummonByBoss = false;
+	m_InSpace = false;
 }
 
 bool CCharacter::FindPortalPosition(vec2 Pos, vec2& Res)
@@ -124,6 +125,7 @@ void CCharacter::Reset()
 
 bool CCharacter::Spawn(CPlayer *pPlayer, vec2 Pos)
 {
+	m_Recoil = vec2(0, 0);
 	m_EmoteStop = -1;
 	m_LastAction = -1;
 	m_LastNoAmmoSound = -1;
@@ -166,7 +168,7 @@ bool CCharacter::Spawn(CPlayer *pPlayer, vec2 Pos)
 
 	if(!m_pPlayer->IsBot())
 	{
-		m_pPlayer->m_TeeInfos.m_UseCustomColor = true;
+		m_pPlayer->m_TeeInfos.m_UseCustomColor = Server()->GetItemSettings(m_pPlayer->GetCID(), CUSTOMCOLOR);
 		GameServer()->m_pController->OnPlayerInfoChange(m_pPlayer);
 	}
 	m_AntiFireTick = Server()->Tick();
@@ -203,6 +205,16 @@ bool CCharacter::Spawn(CPlayer *pPlayer, vec2 Pos)
 
 	m_pPlayer->m_HealthStart = m_Health;
 	m_pPlayer->m_Mana = 0;
+
+	CheckUpgrsIfStrange(&GetPlayer()->AccUpgrade()->m_Health, GameServer()->GetUpgrMaxLevel(GetPlayer()->GetCID(), UPGRADE_HEALTH));
+	CheckUpgrsIfStrange(&GetPlayer()->AccUpgrade()->m_Damage, GameServer()->GetUpgrMaxLevel(GetPlayer()->GetCID(), UPGRADE_DMG));
+	CheckUpgrsIfStrange(&GetPlayer()->AccUpgrade()->m_AmmoRegen, GameServer()->GetUpgrMaxLevel(GetPlayer()->GetCID(), UPGRADE_AMMOREGAN));
+	CheckUpgrsIfStrange(&GetPlayer()->AccUpgrade()->m_Ammo, GameServer()->GetUpgrMaxLevel(GetPlayer()->GetCID(), UPGRADE_AMMO));
+	CheckUpgrsIfStrange(&GetPlayer()->AccUpgrade()->m_HPRegen, GameServer()->GetUpgrMaxLevel(GetPlayer()->GetCID(), UPGRADE_HEALTHREGAN));
+	CheckUpgrsIfStrange(&GetPlayer()->AccUpgrade()->m_Speed, GameServer()->GetUpgrMaxLevel(GetPlayer()->GetCID(), UPGRADE_HANDLE));
+	CheckUpgrsIfStrange(&GetPlayer()->AccUpgrade()->m_Mana, GameServer()->GetUpgrMaxLevel(GetPlayer()->GetCID(), UPGRADE_MANA));
+	CheckUpgrsIfStrange(&GetPlayer()->AccUpgrade()->m_Spray, GameServer()->GetUpgrMaxLevel(GetPlayer()->GetCID(), UPGRADE_SPRAY));
+	CheckUpgrsIfStrange(&GetPlayer()->AccUpgrade()->m_ManaRegen, GameServer()->GetUpgrMaxLevel(GetPlayer()->GetCID(), UPGRADE_MANAREGEN));
 	return true;
 }
 
@@ -379,7 +391,7 @@ void CCharacter::UpdateTuningParam()
 		pTuningParams->m_HookDragSpeed = 0.0f;
 		pTuningParams->m_HookDragAccel = 1.0f;
 	}
-	if(m_InWater == 1)
+	if(m_InWater)
 	{
 		pTuningParams->m_Gravity = -0.05f;
 		pTuningParams->m_GroundFriction = 0.95f;
@@ -391,6 +403,24 @@ void CCharacter::UpdateTuningParam()
 		pTuningParams->m_AirControlAccel = 1.5f;
 		//pTuningParams->m_AirJumpImpulse = 0.0f;
 	}
+
+	if(m_InSpace)
+	{
+		pTuningParams->m_Gravity = 0.f;
+		pTuningParams->m_GroundControlSpeed = 250.0f / Server()->TickSpeed();
+		pTuningParams->m_GroundJumpImpulse = 5.0f;
+		pTuningParams->m_AirControlSpeed = 250.0f / Server()->TickSpeed();
+		pTuningParams->m_AirJumpImpulse = 5.0f;
+		if(m_InWater)
+		{
+			pTuningParams->m_Gravity = pTuningParams->m_Gravity - 0.05f;
+			pTuningParams->m_GroundFriction = 0.95f;
+			pTuningParams->m_GroundControlAccel = 1.5f;
+			pTuningParams->m_AirFriction = 0.95f;
+			pTuningParams->m_AirControlAccel = 1.5f;
+		}
+	}
+
 	if(m_SlipperyTick > 0)
 	{
 		pTuningParams->m_GroundFriction = 1.0f;
@@ -479,6 +509,7 @@ void CCharacter::FireWeapon()
 		return;
 	}
 
+	float SelfKnockback = 0.f;
 	vec2 ProjStartPos = m_Pos+Direction*m_ProximityRadius*0.75f;
 
 	switch(m_ActiveWeapon)
@@ -498,7 +529,12 @@ void CCharacter::FireWeapon()
 			// ---------- 检查玩家职业是 Berserk(狂战士) 还是 Assasins(刺客)
 			int Range = 0;
 			if(m_pPlayer->AccData()->m_Class == PLAYERCLASS_BERSERK)	Range = m_pPlayer->AccUpgrade()->m_HammerRange*20;
-			else if(m_pPlayer->AccData()->m_Class == PLAYERCLASS_ASSASINS) Range = 100;
+			else if(m_pPlayer->AccData()->m_Class == PLAYERCLASS_ASSASSIN) 
+			{
+				Range = 100;
+				if(m_InSpace)
+					SelfKnockback -= 0.5f;
+			}
 		
 			// reset objects Hit
 			m_NumObjectsHit = 0;
@@ -520,12 +556,24 @@ void CCharacter::FireWeapon()
 				}
 			}
 
+			if (Server()->GetItemSettings(m_pPlayer->GetCID(), DONATETITLEBIGHAMMER))
+				Range += 200;
+
 			int Num = GameServer()->m_World.FindEntities(ProjStartPos, m_ProximityRadius*2.0f+Range, (CEntity**)apEnts, MAX_CLIENTS, ENTTYPE_CHARACTER);
 			for (int i = 0; i < Num; ++i)
 			{
 				CCharacter *pTarget = apEnts[i];
+				bool Collide = true;
+				bool Callback = true;
+				if (Server()->GetItemSettings(m_pPlayer->GetCID(), DONATETITLENOCLIPHAMMER))
+				{
+					Collide = GameServer()->Collision()->IntersectLine_Unhookable(ProjStartPos, pTarget->m_Pos);
+					Callback = false;
+				}
+				else
+					Collide = GameServer()->Collision()->IntersectLine(ProjStartPos, pTarget->m_Pos, 0, 0);
 
-				if ((pTarget == this) || GameServer()->Collision()->IntersectLine(ProjStartPos, pTarget->m_Pos, NULL, NULL))
+				if ((pTarget == this) || Collide)
 					continue;
 
 				// set his velocity to fast upward (for now)
@@ -540,7 +588,7 @@ void CCharacter::FireWeapon()
 				else
 					Dir = vec2(0.f, -1.f);
 
-				pTarget->TakeDamage(vec2(0.f, -1.f) + normalize(Dir + vec2(0.f, -1.1f)) * 10.0f, m_pPlayer->m_InArea ? 0 : g_pData->m_Weapons.m_Hammer.m_pBase->m_Damage,
+				pTarget->TakeDamage(Callback ? (vec2(0.f, -1.f) + normalize(Dir + vec2(0.f, -1.1f)) * 10.0f) : vec2(0, 0), m_pPlayer->m_InArea ? 0 : g_pData->m_Weapons.m_Hammer.m_pBase->m_Damage,
 					m_pPlayer->GetCID(), m_ActiveWeapon, 0);
 				Hits++;
 			}
@@ -566,6 +614,9 @@ void CCharacter::FireWeapon()
 					Direction,
 					(int)(Server()->TickSpeed()*GameServer()->Tuning()->m_GunLifetime),
 					g_pData->m_Weapons.m_Gun.m_pBase->m_Damage, Explode, 10, -1, WEAPON_GUN);
+			
+			if(m_InSpace)
+				SelfKnockback += 0.5f;
 
 			GameServer()->CreateSound(m_Pos, SOUND_GUN_FIRE);
 		} break;
@@ -609,6 +660,9 @@ void CCharacter::FireWeapon()
 					vec2(cosf(a), sinf(a))*Speed, 
 					(int)(Server()->TickSpeed()*GameServer()->Tuning()->m_ShotgunLifetime*2), 20, Explode, 10, -1, WEAPON_SHOTGUN);
 				}
+
+				if(m_InSpace)
+					SelfKnockback += 0.2f;
 			}
 			Server()->SendMsg(&Msg, 0, m_pPlayer->GetCID(), -1);
 			GameServer()->CreateSound(m_Pos, SOUND_SHOTGUN_FIRE);
@@ -657,6 +711,9 @@ void CCharacter::FireWeapon()
 						vec2(cosf(a), sinf(a))*Speed, 
 						(int)(Server()->TickSpeed()*GameServer()->Tuning()->m_GrenadeLifetime), 
 						g_pData->m_Weapons.m_Grenade.m_pBase->m_Damage, true, 0, SOUND_GRENADE_EXPLODE, WEAPON_GRENADE);
+
+					if(m_InSpace)
+						SelfKnockback += 0.5f;
 				}
 				Server()->SendMsg(&Msg, 0, m_pPlayer->GetCID(), -1);
 			}
@@ -689,10 +746,13 @@ void CCharacter::FireWeapon()
 				a += Spreading[i + 20-ShotSpread/2];
 				float v = 1 - (absolute(i) / (float)ShotSpread) / 20;
 				float Speed = mix((float)GameServer()->Tuning()->m_ShotgunSpeeddiff, 1.2f, v);
+
+				if(m_InSpace)
+					SelfKnockback += 0.5f;
 				
-				if(!Electro)
-					new CBiologistLaser(GameWorld(), m_Pos, vec2(cosf(a), sinf(a))*Speed, m_pPlayer->GetCID(), 3, Explode);
-				else
+				new CBiologistLaser(GameWorld(), m_Pos, vec2(cosf(a), sinf(a))*Speed, m_pPlayer->GetCID(), 3, Explode);
+				
+				if(Electro)
 				{
 					vec2 Start = m_Pos;
 					Start += Direction*50;
@@ -710,23 +770,26 @@ void CCharacter::FireWeapon()
 					{
 						To = pHit->m_Pos;
 						pHit->ElectroShock();
-						pHit->TakeDamage(Direction, 10, GetPlayer()->GetCID(), WEAPON_RIFLE, TAKEDAMAGEMODE_INFECTION);
+						pHit->TakeDamage(Direction, clamp(10/ShotSpread, 1, 10), GetPlayer()->GetCID(), WEAPON_RIFLE, TAKEDAMAGEMODE_INFECTION);
 					}
 
-					int A = distance(Start, To) / 100;
+					if(Electro)
+					{
+						int A = distance(Start, To) / 100;
 
-					if (A > 4)
-						A = 4;
+						if (A > 4)
+							A = 4;
 
-					if (A < 2)
-						A = 2;
+						if (A < 2)
+							A = 2;
 
-					new CElectro(GameWorld(), Start, To, vec2(cosf(a+i*1.2f), sinf(a+i*1.2f))*40, A);
+						new CElectro(GameWorld(), Start, To, vec2(cosf(a+i*1.2f), sinf(a+i*1.2f))*40, A);
+					}
 				}
-
-				if(Lightning)
-					new CLightning(GameWorld(), m_Pos, vec2(cosf(a), sinf(a)), 200, 100, m_pPlayer->GetCID(), 12, 2);
 			}
+
+			if(Lightning)
+				new CLightning(GameWorld(), m_Pos, Direction, 200, 100, m_pPlayer->GetCID(), g_Config.m_InfDoctorFunnelDamage, 2);
 
 			GameServer()->CreateSound(m_Pos, SOUND_RIFLE_FIRE);
 		} break;
@@ -751,6 +814,8 @@ void CCharacter::FireWeapon()
 			
 		m_ReloadTimer = g_pData->m_Weapons.m_aId[m_ActiveWeapon].m_Firedelay * Server()->TickSpeed() / ReloadTime;
 	}
+
+	m_Recoil -= Direction * SelfKnockback;
 }
 
 void CCharacter::SaturateVelocity(vec2 Force, float MaxSpeed)
@@ -940,27 +1005,24 @@ void CCharacter::Tick()
 			switch (m_pPlayer->GetBotType())
 			{
 			case BOT_BOSSSLIME:
-				m_Health += 10+GameServer()->GetBossLeveling()*500;
+				m_Health = 10+GameServer()->GetBossLeveling()*1000;
 				break;
 			
 			case BOT_BOSSVAMPIRE:
-				m_Health += 10+GameServer()->GetBossLeveling()*1000;
+				m_Health = 10+GameServer()->GetBossLeveling()*1250;
 				break;
 
 			case BOT_BOSSPIGKING:
-				m_Health += 10+GameServer()->GetBossLeveling()*100;
-				m_pPlayer->AccUpgrade()->m_Damage += GameServer()->GetBossLeveling();
+				m_Health = 10+GameServer()->GetBossLeveling()*200;
 				break;
 
 			case BOT_BOSSGUARD:
-				m_Health += 10+GameServer()->GetBossLeveling()*1250;
-				m_pPlayer->AccUpgrade()->m_Damage += GameServer()->GetBossLeveling()*5;
+				m_Health = 10+GameServer()->GetBossLeveling()*1500;
 				break;
 
 			case BOT_BOSSZOMBIE:
 			case BOT_BOSSSKELET:
-				m_Health += 10+GameServer()->GetBossLeveling()*1500;
-				m_pPlayer->AccUpgrade()->m_Damage += GameServer()->GetBossLeveling()/GameServer()->GetBossCount();
+				m_Health = 10+GameServer()->GetBossLeveling()*2000;
 				break;
 
 			default:
@@ -973,11 +1035,24 @@ void CCharacter::Tick()
 		// 生命值恢复
 		if(m_pPlayer->AccUpgrade()->m_HPRegen && m_pPlayer->m_Health < m_pPlayer->m_HealthStart)
 		{
-			if(!HPRegenTick) HPRegenTick = 900-m_pPlayer->AccUpgrade()->m_HPRegen*3;
+			if(!m_HPRegenTick) m_HPRegenTick = 900-m_pPlayer->AccUpgrade()->m_HPRegen*3;
 			else
 			{
-				HPRegenTick--;
-				if(HPRegenTick == 1) m_Health += 50;
+				m_HPRegenTick--;
+				if(m_HPRegenTick == 1) m_Health += 50;
+			}
+		}
+
+		// 魔能恢复
+		if(m_pPlayer->AccUpgrade()->m_ManaRegen && m_pPlayer->m_Mana < m_pPlayer->GetNeedMana())
+		{
+			if(!m_ManaRegenTick)
+				m_ManaRegenTick = 950-m_pPlayer->AccUpgrade()->m_ManaRegen*3;
+			else
+			{
+				m_ManaRegenTick--;
+				if(m_ManaRegenTick == 1) 
+					m_pPlayer->m_Mana += 5;
 			}
 		}
 
@@ -999,6 +1074,17 @@ void CCharacter::Tick()
 			m_AntiPVP = false;
 			GameServer()->SendBroadcast_LStat(m_pPlayer->GetCID(), 101, 50, EXITANTIPVP);
 		}
+
+		if(PlayerPos == ZONE_INSPACE && !m_InSpace) {
+			m_InSpace = true;
+			GameServer()->SendBroadcast_LStat(m_pPlayer->GetCID(), 101, 100, INSPACE);
+		}
+		
+		if(PlayerPos == ZONE_LEAVESPACE && m_InSpace){
+			m_InSpace = false;
+			GameServer()->SendBroadcast_LStat(m_pPlayer->GetCID(), 101, 50, EXITSPACE);
+		}
+
 		// 防止机器人(Pig, Kwah, Boomer等怪物)进入 non-PvP 区域
 		if(PlayerPos == ZONE_PVP && m_pPlayer->IsBot() && m_pPlayer->GetBotType() != BOT_GUARD)
 		{
@@ -1052,7 +1138,7 @@ void CCharacter::Tick()
 		}
 	}
 	
-	if(!m_InWater && !IsGrounded() && (m_Core.m_HookState != HOOK_GRABBED || m_Core.m_HookedPlayer != -1))
+	if(!m_InWater && !m_InSpace && !IsGrounded() && (m_Core.m_HookState != HOOK_GRABBED || m_Core.m_HookedPlayer != -1))
 	{
 		m_InAirTick++;
 	}
@@ -1061,16 +1147,16 @@ void CCharacter::Tick()
 		m_InAirTick = 0;
 	}
 	
-	if(GetClass() == PLAYERCLASS_ASSASINS && IsGrounded() && m_DartLifeSpan <= 0)
+	if(GetClass() == PLAYERCLASS_ASSASSIN && IsGrounded() && m_DartLifeSpan <= 0)
 	{
 		m_DartLeft = g_Config.m_InfNinjaJump;
 	}
-	if(GetClass() == PLAYERCLASS_ASSASINS && m_InAirTick <= Server()->TickSpeed())
+	if(GetClass() == PLAYERCLASS_ASSASSIN && m_InAirTick <= Server()->TickSpeed())
 	{
 		m_PositionLockAvailable = true;
 	}
 	
-	if(m_IsFrozen || (GetClass() == PLAYERCLASS_ASSASINS && m_PositionLocked))
+	if(m_IsFrozen || (GetClass() == PLAYERCLASS_ASSASSIN && m_PositionLocked))
 	{
 		m_Input.m_Jump = 0;
 		m_Input.m_Direction = 0;
@@ -1082,6 +1168,12 @@ void CCharacter::Tick()
 	UpdateTuningParam();
 
 	m_Core.m_Input = m_Input;
+	
+	m_Recoil.x = clamp(m_Recoil.x, -5.f, 5.f);
+	m_Recoil.y = clamp(m_Recoil.y, -5.f, 5.f);
+	
+	m_Core.m_Vel += m_Recoil*0.7f;
+	m_Recoil *= 0.5f;
 	
 	CCharacterCore::CParams CoreTickParams(&m_pPlayer->m_NextTuningParams);
 	CoreTickParams.m_HookMode = m_HookMode;
@@ -1166,7 +1258,7 @@ void CCharacter::Tick()
 					switch(m_pPlayer->m_MapMenuItem)
 					{
 						case CMapConverter::MENUCLASS_ASSASINS:
-							NewClass = m_pPlayer->AccData()->m_Class = PLAYERCLASS_ASSASINS;
+							NewClass = m_pPlayer->AccData()->m_Class = PLAYERCLASS_ASSASSIN;
 							break;
 						case CMapConverter::MENUCLASS_BERSERK:
 							NewClass = m_pPlayer->AccData()->m_Class = PLAYERCLASS_BERSERK;
@@ -1200,6 +1292,21 @@ void CCharacter::Tick()
 				m_Core.m_Jumped &= ~2;
 				m_AirJumpCounter++;
 			}
+		}
+	}
+
+	if(m_InSpace && Server()->Tick()%50 == 0)
+	{
+		unsigned long long m_O2 = Server()->GetItemCount(GetPlayer()->GetCID(), MOONO2);
+		if(m_O2 <= 0)
+		{
+			TakeDamage(vec2(0, 0), m_Health/2 + 500, GetPlayer()->GetCID(), WEAPON_SELF, TAKEDAMAGEMODE_INFECTION);
+			GameServer()->SendBroadcast_LStat(m_pPlayer->GetCID(), 107, 100, LOWO2);
+		}
+		else
+		{
+			Server()->RemItem(GetPlayer()->GetCID(), MOONO2, 1, -1);
+			GameServer()->SendBroadcast_LStat(m_pPlayer->GetCID(), 107, 100, SPACEING);
 		}
 	}
 	m_PrevInput = m_Input;
@@ -1305,7 +1412,7 @@ bool CCharacter::IncreaseHealth(int Amount)
 {
 	if(m_Health >= 10)
 		return false;
-	m_Health = clamp(m_Health+Amount, 0, 10);
+	m_Health = clamp((int)m_Health+Amount, 0, 10);
 	return true;
 }
 
@@ -1313,7 +1420,7 @@ bool CCharacter::IncreaseArmor(int Amount)
 {
 	if(m_Armor >= 10)
 		return false;
-	m_Armor = clamp(m_Armor+Amount, 0, 10);
+	m_Armor = clamp((int)m_Armor+Amount, 0, 10);
 	return true;
 }
 
@@ -1367,7 +1474,7 @@ void CCharacter::Die(int Killer, int Weapon)
 			
 			GameServer()->m_WinWaitBoss = 1000;
 
-			for (int i = MAX_PLAYERS; i < MAX_CLAN_LENGTH; i++)
+			for (int i = MAX_PLAYERS; i < MAX_CLIENTS; i++)
 			{
 				CPlayer *pP = GameServer()->m_apPlayers[i];
 				if(!pP || !pP->GetCharacter())
@@ -1383,7 +1490,8 @@ void CCharacter::Die(int Killer, int Weapon)
 		if(m_pPlayer->m_InBossed)
 		{	
 			m_pPlayer->m_InBossed = false;
-			GameServer()->SendChatTarget_Localization(m_pPlayer->GetCID(), CHATCATEGORY_DEFAULT, _("你被 Boss {str:name}击败."), "name", GameServer()->GetBotName(GameServer()->m_BossType), NULL);
+			if(!GameServer()->m_WinWaitBoss)
+				GameServer()->SendChatTarget_Localization(m_pPlayer->GetCID(), CHATCATEGORY_DEFAULT, _("你被 Boss {str:name}击败."), "name", GameServer()->GetBotName(GameServer()->m_BossType), NULL);
 		}
 	}
 
@@ -1559,6 +1667,8 @@ int CCharacter::Unjail(int PlayerID) //手动救某人出监狱
 
 bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 {
+	m_Recoil += Force;
+
 	CPlayer *pFrom = GameServer()->m_apPlayers[From];
 	CCharacter *pChr = GameServer()->m_apPlayers[From]->GetCharacter();
 
@@ -1677,7 +1787,7 @@ bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 			if (probability <= 5.0f) probability = 5.0f;
 			if(random_prob(1.0f/probability))
 			{
-				if(m_pPlayer->GetBotType() == BOT_BOSSSLIME) Freeze(2);
+				if(m_pPlayer->IsBoss()) Freeze(3);
 				else Freeze(1);
 			}
 		}
@@ -1687,17 +1797,17 @@ bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 			auto RandProc = (float)(100-m_pPlayer->AccUpgrade()->m_Pasive2*2);
 			if(random_prob(1.0f/RandProc))
 			{
-				if(!Server()->GetItemSettings(m_pPlayer->GetCID(), SCHAT)) 
+				if(!Server()->GetItemSettings(m_pPlayer->GetCID(), SCHAT))
 					GameServer()->SendChatTarget_Localization(m_pPlayer->GetCID(), CHATCATEGORY_DEFAULT, _("被动技能不受伤害"), NULL);
 				return true;
 			}
 		}
 		
-		auto getcount = (float)(pFrom->AccData()->m_Class == PLAYERCLASS_ASSASINS ? 15-pFrom->AccUpgrade()->m_HammerRange : 15.0f);
+		auto getcount = (float)(pFrom->AccData()->m_Class == PLAYERCLASS_ASSASSIN ? 15-pFrom->AccUpgrade()->m_HammerRange : 15.0f);
 		if(random_prob(1.0f/getcount))
 		{
 			int CritDamage = Dmg+pFrom->AccUpgrade()->m_Damage*2+random_int(0, 50);
-			if(pFrom->AccData()->m_Class == PLAYERCLASS_ASSASINS)
+			if(pFrom->AccData()->m_Class == PLAYERCLASS_ASSASSIN)
 				CritDamage += (CritDamage/100)*pFrom->AccUpgrade()->m_Pasive2*3;
 			
 			Dmg = CritDamage;
@@ -1807,7 +1917,7 @@ bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 			{
 				if(m_pPlayer->m_BigBot)
 				{
-					GameServer()->m_apPlayers[From]->GiveUpPoint(random_int(1,20));
+					GameServer()->m_apPlayers[From]->GiveUpPoint(5);
 					GameServer()->UpdateStats(From);
 				}
 				if(!GameServer()->m_CityStart)
@@ -1835,7 +1945,7 @@ bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 			{
 				if(m_pPlayer->m_BigBot)
 				{
-					GameServer()->m_apPlayers[From]->GiveUpPoint(random_int(10,20));
+					GameServer()->m_apPlayers[From]->GiveUpPoint(10);
 					GameServer()->UpdateStats(From);
 				}
 				if(!GameServer()->m_CityStart)
@@ -1860,7 +1970,7 @@ bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 			{
 				if(m_pPlayer->m_BigBot)
 				{
-					GameServer()->m_apPlayers[From]->GiveUpPoint(random_int(20,50));
+					GameServer()->m_apPlayers[From]->GiveUpPoint(20);
 					GameServer()->UpdateStats(From);
 				}
 				if(!GameServer()->m_CityStart)
@@ -1917,7 +2027,7 @@ bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 							CreateDropRandom(FORMULAEARRINGS, 1, 90, i, Force/(35+randforce));
 							CreateDropRandom(FORMULAWEAPON, 1, 90, i, Force/(40+randforce));
 							CreateDropRandom(RANDOMCRAFTITEM, 1, 15, i, Force/(45+randforce));
-							GameServer()->m_apPlayers[From]->GiveUpPoint(int(20/BossCount));
+							GameServer()->m_apPlayers[From]->GiveUpPoint(int(15/BossCount));
 							GameServer()->UpdateStats(From);
 							break;
 						
@@ -1926,7 +2036,7 @@ bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 							CreateDropRandom(BOOKEXPMIN, 1, 15, i, Force/(45+randforce));
 							CreateDropRandom(BOOKMONEYMIN, 1, 80, i, Force/(45+randforce));
 							CreateDropRandom(CLANBOXEXP, 1, 50, i, Force/(45+randforce));
-							GameServer()->m_apPlayers[From]->GiveUpPoint(int(25/BossCount));
+							GameServer()->m_apPlayers[From]->GiveUpPoint(int(20/BossCount));
 							GameServer()->UpdateStats(From);
 							break;
 
@@ -1944,7 +2054,7 @@ bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 							CreateDropRandom(GUARDHEAD, 5, false, i, Force/(35+randforce));
 							CreateDropRandom(DIRTYGUARDHEAD, 10, false, i, Force/(35+randforce)	);
 							CreateDropRandom(GUARDHAMFRAG, random_int(1, 4), 25, i, Force/(12+randforce));
-							GameServer()->m_apPlayers[From]->GiveUpPoint(int(10/BossCount));
+							GameServer()->m_apPlayers[From]->GiveUpPoint(int(15/BossCount));
 							GameServer()->UpdateStats(From);
 							break;
 
@@ -1953,7 +2063,7 @@ bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 							CreateDropRandom(ZOMBIEEYE, random_int(3, 5), false, i, Force/(35+randforce));
 							CreateDropRandom(ZOMBIEBRAIN, 1, 40, From, Force/(50+randforce));
 							CreateDropRandom(DRAGONORE, random_int(20, 30), false, i, Force/(12+randforce));
-							GameServer()->m_apPlayers[From]->GiveUpPoint(int(10/BossCount));
+							GameServer()->m_apPlayers[From]->GiveUpPoint(int(25/BossCount));
 							GameServer()->UpdateStats(From);
 							break;
 
@@ -1962,7 +2072,7 @@ bool CCharacter::TakeDamage(vec2 Force, int Dmg, int From, int Weapon, int Mode)
 							CreateDropRandom(SKELETSBONE, random_int(3, 5), false, i, Force/(35+randforce));
 							CreateDropRandom(SKELETSKULL, random_int(1, 2), false, i, Force/(35+randforce));
 							CreateDropRandom(DRAGONORE, random_int(20, 30), false, i, Force/(12+randforce));
-							GameServer()->m_apPlayers[From]->GiveUpPoint(int(10/BossCount));
+							GameServer()->m_apPlayers[From]->GiveUpPoint(int(30/BossCount));
 							GameServer()->UpdateStats(From);
 							break;
 
@@ -2073,7 +2183,7 @@ void CCharacter::Snap(int SnappingClient)
 			else if(Server()->GetItemCount(m_pPlayer->GetCID(), AEVIL))
 				EmoteNormal = EMOTE_ANGRY;
 		}
-		if(m_InWater)
+		if(m_InWater || m_InSpace)
 			EmoteNormal = EMOTE_BLINK;
 	}
 
@@ -2112,7 +2222,7 @@ void CCharacter::Snap(int SnappingClient)
 
 	// 武器：
 	// 在玩家被冻结时，或者玩家职业为 Assasins(刺客)且切换到锤子武器时，将玩家武器（外观）设置为 Ninja(忍者)
-	if((GetInfWeaponID(m_ActiveWeapon) == INFWEAPON_HAMMER && m_pPlayer && m_pPlayer->AccData()->m_Class == PLAYERCLASS_ASSASINS && !m_pPlayer->m_InArea) || m_IsFrozen)
+	if((GetInfWeaponID(m_ActiveWeapon) == INFWEAPON_HAMMER && m_pPlayer && m_pPlayer->AccData()->m_Class == PLAYERCLASS_ASSASSIN && !m_pPlayer->m_InArea) || m_IsFrozen)
 	{
 		if(m_IsFrozen)
 			pCharacter->m_Emote = EMOTE_BLINK;
@@ -2212,28 +2322,16 @@ void CCharacter::ClassSpawnAttributes()
 			if(m_pPlayer->AccUpgrade()->m_HammerRange)
 			{
 				int Proc = (m_Health / 100)*m_pPlayer->AccUpgrade()->m_HammerRange*4;
-				m_Health = 10+m_pPlayer->AccUpgrade()->m_Health*50+Proc;
-			}
-			if(!m_pPlayer->IsKownClass(PLAYERCLASS_HEALER))
-			{
-				m_pPlayer->m_aKnownClass[PLAYERCLASS_HEALER] = true;
+				m_Health = 10+m_pPlayer->AccUpgrade()->m_Health*100+Proc;
 			}
 			break;
 		case PLAYERCLASS_BERSERK:
 			RemoveAllGun();
 			m_Health = 10+m_pPlayer->AccUpgrade()->m_Health*40;
-			if(!m_pPlayer->IsKownClass(PLAYERCLASS_BERSERK))
-			{
-				m_pPlayer->m_aKnownClass[PLAYERCLASS_BERSERK] = true;
-			}
 			break;
-		case PLAYERCLASS_ASSASINS:
+		case PLAYERCLASS_ASSASSIN:
 			RemoveAllGun();
 			m_Health = 5+m_pPlayer->AccUpgrade()->m_Health*40;
-			if(!m_pPlayer->IsKownClass(PLAYERCLASS_ASSASINS))
-			{
-				m_pPlayer->m_aKnownClass[PLAYERCLASS_ASSASINS] = true;
-			}
 			break;
 		case PLAYERCLASS_NONE:
 			m_Health = 10;
@@ -2341,7 +2439,7 @@ void CCharacter::ClassSpawnAttributes()
 
 				Server()->SetMaxAmmo(m_pPlayer->GetCID(), INFWEAPON_GUN, 15);
 				Server()->SetFireDelay(m_pPlayer->GetCID(), INFWEAPON_GUN, 1000);
-				Server()->SetAmmoRegenTime(m_pPlayer->GetCID(), INFWEAPON_GUN, 5000);
+				Server()->SetAmmoRegenTime(m_pPlayer->GetCID(), INFWEAPON_GUN, 4000);
 	
 				GiveWeapon(WEAPON_HAMMER, 10000);
 				GiveWeapon(WEAPON_GUN, 15);
@@ -2373,7 +2471,7 @@ void CCharacter::ClassSpawnAttributes()
 		// Рисовка артифактов
 		if(m_pPlayer->m_BigBot || Server()->GetItemCount(m_pPlayer->GetCID(), SNAPAMMOREGEN))
 		{
-			m_pPlayer->m_TeeInfos.m_UseCustomColor = 1;
+			m_pPlayer->m_TeeInfos.m_UseCustomColor = true;
 			m_pPlayer->m_TeeInfos.m_ColorBody = 16711495;
 		}
 
@@ -2545,10 +2643,16 @@ void CCharacter::CreateDropRandom(int ItemID, int Count, int Random, int HowID, 
 	if(!IsAlive() || HowID >= MAX_PLAYERS)
 		return; 
 
+	if(Server()->GetItemCount(HowID, X2MONEYEXPVIP))
+		Count *= 2;
+
 	vec2 DropPos = vec2(m_Pos.x, m_Pos.y - 28.f);
 	if(!Random) 
 	{
-		new CDropItem(GameWorld(), DropPos, Force, ItemID, Count, HowID, 0);
+		if(Server()->GetItemCount(HowID, SAUTOPICK) && Server()->GetItemSettings(HowID, SAUTOPICK))
+			Server()->GiveItem(HowID, ItemID, Count);
+		else
+			new CDropItem(GameWorld(), DropPos, Force, ItemID, Count, HowID, 0);
 		return;
 	}
 	if (Server()->GetItemSettings(HowID, TITLEPPP))
@@ -2561,7 +2665,12 @@ void CCharacter::CreateDropRandom(int ItemID, int Count, int Random, int HowID, 
 		Random = 1;
 	
 	if(random_prob(1.0f/(float)Random))
-		new CDropItem(GameWorld(), DropPos, Force, ItemID, Count, HowID, 0);
+	{
+		if(Server()->GetItemCount(HowID, SAUTOPICK) && Server()->GetItemSettings(HowID, SAUTOPICK))
+			Server()->GiveItem(HowID, ItemID, Count);
+		else
+			new CDropItem(GameWorld(), DropPos, Force, ItemID, Count, HowID, 0);
+	}
 }
 
 void CCharacter::TakeItemChar(int ClientID)
@@ -2662,11 +2771,6 @@ void CCharacter::ParseEmoticionButton(int ClientID, int Emtion)
 	}
 	else if(Server()->GetItemCount(ClientID, SFUNNEL) && Server()->GetItemSettings(ClientID, SFUNNEL) == Emtion)
 	{
-		if(m_pPlayer->m_Mana < 200)
-			return GameServer()->SendChatTarget_Localization(m_pPlayer->GetCID(), CHATCATEGORY_DEFAULT, _("你的魔能不足.(200点)"), NULL);
-
-		m_pPlayer->m_Mana -= 200;
-
 		for(auto *pFunnel = (CDoctorFunnel*) GameWorld()->FindFirst(ENTTYPE_FUNNEL); pFunnel; pFunnel = (CDoctorFunnel*) pFunnel->TypeNext())
 		{
 			if(pFunnel->GetOwner() == m_pPlayer->GetCID())
@@ -2677,6 +2781,11 @@ void CCharacter::ParseEmoticionButton(int ClientID, int Emtion)
 				return;
 			}
 		}
+		if(m_pPlayer->m_Mana < 200)
+			return GameServer()->SendChatTarget_Localization(m_pPlayer->GetCID(), CHATCATEGORY_DEFAULT, _("你的魔能不足.(200点)"), NULL);
+
+		m_pPlayer->m_Mana -= 200;
+
 		new CDoctorFunnel(GameWorld(), m_Pos, m_pPlayer->GetCID());
 		GameServer()->CreateSound(m_Pos, SOUND_RIFLE_FIRE);
 	}
@@ -3031,4 +3140,9 @@ void CCharacter::HandleMapZone_chMap()
 			m_InChangMap = false;
 		}
 	}*/
+}
+
+void CCharacter::CheckUpgrsIfStrange(int *pCount, int Max)
+{
+	*pCount = clamp(*pCount, 0, Max); // wow wtf.
 }

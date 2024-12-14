@@ -267,7 +267,7 @@ void CPlayer::BasicAuthedTick()
 	if (AccData()->m_Money >= 10000)
 	{
 		AccData()->m_Gold += AccData()->m_Money / 10000;
-		int Got = AccData()->m_Money / 10000;
+		unsigned long long int Got = AccData()->m_Money / 10000;
 
 		AccData()->m_Money -= Got * 10000;
 	}
@@ -280,7 +280,7 @@ void CPlayer::BasicAuthedTick()
 		AccData()->m_Exp -= AccData()->m_Level * GetNeedForUp();
 		AccData()->m_Level++;
 		AccUpgrade()->m_SkillPoint += 1;
-		GiveUpPoint(100);
+		GiveUpPoint(10);
 		needexp = AccData()->m_Level * GetNeedForUp();
 		int GetBag = Server()->GetItemCount(m_ClientID, AMULETCLEEVER) ? 20 : 1;
 		GameServer()->GiveItem(m_ClientID, MONEYBAG, GetBag);
@@ -499,6 +499,10 @@ void CPlayer::Tick()
 				GameServer()->SendGuide(m_ClientID, GameServer()->m_BossType);
 			else if (GameServer()->m_BossStart)
 				GameServer()->SendBroadcast_LBossed(m_ClientID, 250, 100);
+			
+			if (!GameServer()->GetBossCount())
+				GameServer()->m_WinWaitBoss = 2;
+
 		}
 
 		// таймер синхронизации
@@ -785,7 +789,7 @@ void CPlayer::Snap(int SnappingClient)
 	pClientInfo->m_Country = Server()->ClientCountry(m_ClientID);
 
 	StrToInts(&pClientInfo->m_Skin0, 6, m_TeeInfos.m_aSkinName);
-	pClientInfo->m_UseCustomColor = m_TeeInfos.m_UseCustomColor;
+	pClientInfo->m_UseCustomColor = (int)m_TeeInfos.m_UseCustomColor;
 	pClientInfo->m_ColorBody = m_TeeInfos.m_ColorBody;
 	pClientInfo->m_ColorFeet = m_TeeInfos.m_ColorFeet;
 
@@ -1052,8 +1056,8 @@ void CPlayer::TryRespawn()
 
 			m_BigBot = true;
 
-			AccUpgrade()->m_Health = (int)(AccData()->m_Level / 3);
-			AccUpgrade()->m_Damage = 100;
+			AccUpgrade()->m_Health = (int)(AccData()->m_Level / 2)*(GameServer()->GetBossLeveling());
+			AccUpgrade()->m_Damage = 100*GameServer()->GetBossLeveling();
 			break;
 		case BOT_BOSSVAMPIRE:
 			m_pCharacter = new (AllocMemoryCell) CBossSlime(&GameServer()->m_World);
@@ -1061,26 +1065,29 @@ void CPlayer::TryRespawn()
 
 			m_BigBot = true;
 
-			AccUpgrade()->m_Health = (int)(AccData()->m_Level / 3);
-			AccUpgrade()->m_Damage = (int)(AccData()->m_Level * 2);
+			AccUpgrade()->m_Health = (int)(AccData()->m_Level / 2)*(GameServer()->GetBossLeveling());
+			AccUpgrade()->m_Damage = 200*GameServer()->GetBossLeveling();
 			break;
 		case BOT_BOSSPIGKING:
 			m_pCharacter = new (AllocMemoryCell) CBossPig(&GameServer()->m_World);
-			AccData()->m_Level = 300 + random_int(3, 13);
+			AccData()->m_Level = 200 + random_int(3, 13);
+			
+			AccUpgrade()->m_Damage = GameServer()->GetBossLeveling()*10;
 			m_BigBot = true;
-			AccUpgrade()->m_Health = (int)(AccData()->m_Level * 2);
-			AccUpgrade()->m_Damage += (int)(AccData()->m_Level * 5);
 			break;
 		case BOT_BOSSGUARD:
 			m_pCharacter = new (AllocMemoryCell) CBossGuard(&GameServer()->m_World);
-			AccData()->m_Level = 2000 + random_int(0, 100);
-			AccUpgrade()->m_Damage += (int)(AccData()->m_Level * 20);
+			AccData()->m_Level = GameServer()->GetBossLeveling() + 1000;
+			AccUpgrade()->m_Damage = GameServer()->GetBossLeveling()*100;
+			AccUpgrade()->m_Health = (int)(AccData()->m_Level * 100) + GameServer()->GetBossLeveling();
 			m_BigBot = true;
 			break;
 		case BOT_BOSSZOMBIE:
 		case BOT_BOSSSKELET:
 			m_pCharacter = new (AllocMemoryCell) CBossZS(&GameServer()->m_World);
-			AccData()->m_Level = 2000 + random_int(0, 1000);
+			AccData()->m_Level = 1000 + random_int(0, 1000);
+			AccUpgrade()->m_Damage = GameServer()->GetBossLeveling()*20;
+			AccUpgrade()->m_Health = GameServer()->GetBossLeveling()*25;
 			m_BigBot = true;
 			break;
 		case BOT_GUARD:
@@ -1138,23 +1145,21 @@ int CPlayer::GetClass()
 
 void CPlayer::SetClassSkin(int newClass, int State)
 {
+	m_TeeInfos.m_UseCustomColor = Server()->GetItemSettings(GetCID(), CUSTOMCOLOR);
 	switch (newClass)
 	{
-	case PLAYERCLASS_ASSASINS:
-		m_TeeInfos.m_UseCustomColor = 0;
+	case PLAYERCLASS_ASSASSIN:
 		str_copy(m_TeeInfos.m_aSkinName, "bluekitty", sizeof(m_TeeInfos.m_aSkinName));
 		break;
 	case PLAYERCLASS_BERSERK:
-		m_TeeInfos.m_UseCustomColor = 0;
 		str_copy(m_TeeInfos.m_aSkinName, "coala", sizeof(m_TeeInfos.m_aSkinName));
 		break;
 	case PLAYERCLASS_HEALER:
-		m_TeeInfos.m_UseCustomColor = 0;
 		str_copy(m_TeeInfos.m_aSkinName, "redstripe", sizeof(m_TeeInfos.m_aSkinName));
 		break;
 	default:
-		m_TeeInfos.m_UseCustomColor = 0;
 		str_copy(m_TeeInfos.m_aSkinName, "default", sizeof(m_TeeInfos.m_aSkinName));
+		break;
 	}
 }
 
@@ -1170,11 +1175,6 @@ void CPlayer::SetClass(int newClass)
 		m_pCharacter->SetClass(newClass);
 }
 
-bool CPlayer::IsKownClass(int c)
-{
-	return m_aKnownClass[c];
-}
-
 const char *CPlayer::GetLanguage()
 {
 	return m_aLanguage;
@@ -1182,7 +1182,7 @@ const char *CPlayer::GetLanguage()
 
 const char *CPlayer::GetClassName()
 {
-	if (AccData()->m_Class == PLAYERCLASS_ASSASINS)
+	if (AccData()->m_Class == PLAYERCLASS_ASSASSIN)
 		return "Assasin";
 	else if (AccData()->m_Class == PLAYERCLASS_BERSERK)
 		return "Berserk";
@@ -1266,6 +1266,12 @@ const char *CPlayer::TitleGot()
 			return "#人上人#";
 		}
 	}
+	else if(Server()->GetItemSettings(m_ClientID, DONATETITLEWORK))
+		return "收割机";
+	else if(Server()->GetItemSettings(m_ClientID, DONATETITLEBIGHAMMER))
+		return "大锤子";
+	else if(Server()->GetItemSettings(m_ClientID, DONATETITLENOCLIPHAMMER))
+		return "穿透锤";
 	else if (Server()->GetItemSettings(m_ClientID, TITLEQUESTS))
 		return "眷属";
 	else if (Server()->GetItemSettings(m_ClientID, BOSSDIE))

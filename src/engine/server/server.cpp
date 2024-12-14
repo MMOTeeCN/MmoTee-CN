@@ -72,94 +72,6 @@ static void StrRtrim(char *pStr)
 	}
 }
 
-CSnapIDPool::CSnapIDPool()
-{
-	Reset();
-}
-
-void CSnapIDPool::Reset()
-{
-	for(int i = 0; i < MAX_IDS; i++)
-	{
-		m_aIDs[i].m_Next = i+1;
-		m_aIDs[i].m_State = 0;
-	}
-
-	m_aIDs[MAX_IDS-1].m_Next = -1;
-	m_FirstFree = 0;
-	m_FirstTimed = -1;
-	m_LastTimed = -1;
-	m_Usage = 0;
-	m_InUsage = 0;
-}
-
-
-void CSnapIDPool::RemoveFirstTimeout()
-{
-	int NextTimed = m_aIDs[m_FirstTimed].m_Next;
-
-	// add it to the free list
-	m_aIDs[m_FirstTimed].m_Next = m_FirstFree;
-	m_aIDs[m_FirstTimed].m_State = 0;
-	m_FirstFree = m_FirstTimed;
-
-	// remove it from the timed list
-	m_FirstTimed = NextTimed;
-	if(m_FirstTimed == -1)
-		m_LastTimed = -1;
-
-	m_Usage--;
-}
-
-int CSnapIDPool::NewID()
-{
-	int64 Now = time_get();
-
-	// process timed ids
-	while(m_FirstTimed != -1 && m_aIDs[m_FirstTimed].m_Timeout < Now)
-		RemoveFirstTimeout();
-
-	int ID = m_FirstFree;
-	dbg_assert(ID != -1, "id error");
-	if(ID == -1)
-		return ID;
-	m_FirstFree = m_aIDs[m_FirstFree].m_Next;
-	m_aIDs[ID].m_State = 1;
-	m_Usage++;
-	m_InUsage++;
-	return ID;
-}
-
-void CSnapIDPool::TimeoutIDs()
-{
-	// process timed ids
-	while(m_FirstTimed != -1)
-		RemoveFirstTimeout();
-}
-
-void CSnapIDPool::FreeID(int ID)
-{
-	if(ID < 0)
-		return;
-	dbg_assert(m_aIDs[ID].m_State == 1, "id is not alloced");
-
-	m_InUsage--;
-	m_aIDs[ID].m_State = 2;
-	m_aIDs[ID].m_Timeout = time_get()+time_freq()*5;
-	m_aIDs[ID].m_Next = -1;
-
-	if(m_LastTimed != -1)
-	{
-		m_aIDs[m_LastTimed].m_Next = ID;
-		m_LastTimed = ID;
-	}
-	else
-	{
-		m_FirstTimed = ID;
-		m_LastTimed = ID;
-	}
-}
-
 void CServerBan::InitServerBan(IConsole *pConsole, IStorage *pStorage, CServer* pServer)
 {
 	CNetBan::Init(pConsole, pStorage);
@@ -834,8 +746,7 @@ int CServer::DelClientCallback(int ClientID, int Type, const char *pReason, void
 	pThis->m_aClients[ClientID].AccUpgrade.m_Upgrade = 0;
 	pThis->m_aClients[ClientID].AccUpgrade.m_SkillPoint = 0;
 
-	for(int i = 0; i < 7; i++)
-		pThis->m_aClients[ClientID].m_ItemCount[i] = 0;
+	pThis->m_aClients[ClientID].m_ItemCount.fill(0);
 
 	for(int i = 0; i < 20; i++)
 	{
@@ -1182,6 +1093,9 @@ void CServer::ProcessClientPacket(CNetChunk *pPacket)
 					char aBuf[256];
 					str_format(aBuf, sizeof(aBuf), "ClientID=%d authed (admin)", ClientID);
 					Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "server", aBuf);
+
+					if(!GetItemCount(ClientID, IMADMIN))
+						GameServer()->GiveItem(ClientID, IMADMIN, 1);
 				}
 				else if(g_Config.m_SvRconModPassword[0] && str_comp(pPw, g_Config.m_SvRconModPassword) == 0)
 				{
@@ -1317,7 +1231,7 @@ void CServer::SendServerInfo(const NETADDR *pAddr, int Token, bool Extended, int
 	p.AddString(GetMapName(), 32);
 
 	// gametype
-	p.AddString("MMOTee-Azataz-F", 16);
+	p.AddString(GameServer()->GameType(), 16);
 
 	// flags
 	int i = 0;
@@ -1471,7 +1385,7 @@ int CServer::LoadMap(const char *pMapName)
 		return 0;
 
 	// reinit snapshot ids
-	m_IDPool.TimeoutIDs();
+	m_IdPool.TimeoutIds();
 
 	// get the crc of the map
 	m_vMapData[MapID].m_CurrentMapCrc = m_vpMap[MapID]->Crc();
@@ -1514,7 +1428,7 @@ int CServer::Run()
 {
 	m_PrintCBIndex = Console()->RegisterPrintCallback(g_Config.m_ConsoleOutputLevel, SendRconLineAuthed, this);
 
-	// read file data into buffer
+	/* read file data into buffer
 	char aFileBuf[512];
 	str_format(aFileBuf, sizeof(aFileBuf), "maps.json");
 	const IOHANDLE File = m_pStorage->OpenFile(aFileBuf, IOFLAG_READ, IStorage::TYPE_ALL);
@@ -1549,7 +1463,9 @@ int CServer::Run()
 	}
 
 	// clean up
-	json_value_free(pJsonData);
+	json_value_free(pJsonData);*/
+	
+	LoadMap(g_Config.m_SvMap);
 
 	// start server
 	NETADDR BindAddr;
@@ -2051,12 +1967,12 @@ void CServer::RegisterCommands()
 
 int CServer::SnapNewID()
 {
-	return m_IDPool.NewID();
+	return m_IdPool.NewId();
 }
 
 void CServer::SnapFreeID(int ID)
 {
-	m_IDPool.FreeID(ID);
+	m_IdPool.FreeId(ID);
 }
 
 
@@ -2239,7 +2155,7 @@ void CServer::ResetBotInfo(int ClientID, int BotType, int BotSubType, int CitySt
 		str_copy(m_aClients[ClientID].m_aName, "BadPigges", MAX_NAME_LENGTH);
 		break;
 	case BOT_BOSSGUARD:
-		str_copy(m_aClients[ClientID].m_aName, "GUARD", MAX_NAME_LENGTH);
+		str_copy(m_aClients[ClientID].m_aName, "Guard", MAX_NAME_LENGTH);
 		break;
 	case BOT_BOSSZOMBIE:
 		str_copy(m_aClients[ClientID].m_aName, "Zombie", MAX_NAME_LENGTH);
@@ -2497,12 +2413,12 @@ int CServer::GetItemPrice(int ClientID, int ItemID, int Type)
 ///////////////// ########################### MATERIALS #####
 ///////////////// ################################ ##########
 
-int CServer::GetMaterials(int ID)
+unsigned long long int CServer::GetMaterials(int ID)
 {
 	return m_Materials[ID];
 }
 
-void CServer::SetMaterials(int ID, int Count)
+void CServer::SetMaterials(int ID, unsigned long long int Count)
 {
 	m_Materials[ID] = Count;
 	SaveMaterials(ID);
@@ -2613,7 +2529,7 @@ void CServer::InitMaterialID()
 	pJob->Start();
 }
 
-void CServer::RemItems(int ItemID, int ClientID, int Count, int Type)
+void CServer::RemItems(int ItemID, int ClientID, unsigned long long int Count, int Type)
 {
 	if(m_aClients[ClientID].m_UserID < 0 && m_vpGameServer[DEFAULT_MAP_ID])
 		return;
@@ -2622,7 +2538,7 @@ void CServer::RemItems(int ItemID, int ClientID, int Count, int Type)
 	pJob->Start();
 }
 
-void CServer::RemItem(int ClientID, int ItemID, int Count, int Type)
+void CServer::RemItem(int ClientID, int ItemID, unsigned long long int Count, int Type)
 {
 	RemItems(ItemID, ClientID, Count, Type);
 }

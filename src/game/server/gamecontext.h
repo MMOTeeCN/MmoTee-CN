@@ -68,7 +68,11 @@ enum
 	INCRAFT,
 	INQUEST,
 	EXITANTIPVP,
+	INSPACE,
+	EXITSPACE,
 	INCREATEBOSS,
+	SPACEING,
+	LOWO2,
 };
 
 enum
@@ -100,6 +104,18 @@ enum
 	AMAXSPREAD = 30,
 	BMAXSPREAD = 30,
 	HMAXSPREAD = 30,
+
+	AMAXHAMMERRANGE = 7,
+	BMAXHAMMERRANGE = 4,
+	HMAXHAMMERRANGE = 5,
+
+	AMAXPASIVE2 = 280,
+	BMAXPASIVE2 = 240,
+	HMAXPASIVE2 = 300,
+
+	AMAXMANAREGEN = 7,
+	BMAXMANAREGEN = 4,
+	HMAXMANAREGEN = 10,
 };
 
 enum EMainQuestNeed
@@ -152,11 +168,6 @@ enum EDailyQuests
 
 enum
 {
-	HAMMERRANGE = 15
-};
-
-enum
-{
 	PRICEHEALTH = 20,
 	PRICEDMG = 50,
 	PRICEAMMOREGAN = 50,
@@ -165,7 +176,26 @@ enum
 	PRICEHANDLE = 50,
 	PRICEMANA = 10,
 	PRICESPRAY = 100,
+	PRICEHAMMERRANGE = 15,
+	PRICEMANAREGEN = 20,
 };
+
+enum
+{
+	UPGRADE_HEALTH = 0,
+	UPGRADE_DMG,
+	UPGRADE_AMMOREGAN,
+	UPGRADE_AMMO ,
+	UPGRADE_HEALTHREGAN,
+	UPGRADE_HANDLE,
+	UPGRADE_MANA,
+	UPGRADE_SPRAY,
+	UPGRADE_HAMMERRANGE,
+	UPGRADE_PASIVE2,
+	UPGRADE_MANAREGEN,
+	NUM_UPGRADE,
+};
+
 class CGameContext : public IGameServer
 {
 	IServer *m_pServer;
@@ -263,9 +293,9 @@ public:
 
 	// Предметы апгрейды
 	// 物品升级
-	void BuyItem(int ItemType, int ClientID, int Type = 0);
+	void BuyItem(int ItemType, int ClientID, int Type = 0, int Count = 1);
 	void GiveItem(int ClientID, int ItemID, int Count, int Enchant = 0);
-	void RemItem(int ClientID, int ItemID, int Count);
+	void RemItem(int ClientID, int ItemID, unsigned long long int Count);
 
 	void CreateItem(int ClientID, int ItemID, int Count);
 	void BuyUpgradeClan(int ClientID, int Money, Clan Type, const char *SubType);
@@ -273,7 +303,7 @@ public:
 	void SkillSettings(int ClientID, int ItemType, const char *Msg);
 	void EyeEmoteSettings(int ClientID, int ItemType, const char *Msg);
 	void BuySkill(int ClientID, int Price, int ItemID);
-	void UseItem(int ClientID, int ItemID, int Count, int Type);
+	void UseItem(int ClientID, int ItemID, unsigned long long int Count, int Type);
 
 	void CreateSellWorkItem(int ClientID, int ItemID, int Price);
 
@@ -408,7 +438,7 @@ public:
 	struct DailyQuest
 	{
 		int m_LastHour;
-		int m_RandomNumber;
+		long long int m_RandomNumber;
 	} m_DailyQuest;
 
 	int GetDailyQuestItem(int Quest, int SubType);
@@ -418,6 +448,14 @@ public:
 	
 	int m_BossSummonNum;
 
+	void SetUpgrMaxLevel(int Class, int Upgr, int Level);
+	int GetUpgrMaxLevel(int ClientID, int Upgr, bool MoreLevel = true);
+	int GetMoreLevel(int ClientID);
+
+	void SetUpgrPrice(int Class, int Upgr, int Price);
+	int GetUpgrPrice(int ClientID, int Upgr);
+
+	void InitClassesUpgrs();
 private:
 	bool PrivateMessage(const char *pStr, int ClientID, bool TeamChat);
 	class CBroadcastState
@@ -436,6 +474,8 @@ private:
 	CBroadcastState m_aBroadcastStates[MAX_PLAYERS];
 
 	int m_MapID;
+	int m_aaUpgrMaxLevel[NUM_PLAYERCLASS][NUM_UPGRADE];
+	int m_aaUpgrPrice[NUM_PLAYERCLASS][NUM_UPGRADE];
 };
 
 inline int64_t CmaskAll() { return -1LL; }

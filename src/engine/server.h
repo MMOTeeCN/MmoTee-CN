@@ -283,6 +283,12 @@ enum Items
 	ELECTROLASER,
 	LIGHTNINGLASER,
 	SFUNNEL,
+	SAUTOPICK,
+	IMADMIN,
+
+	DONATETITLEWORK,
+	DONATETITLEBIGHAMMER,
+	DONATETITLENOCLIPHAMMER,
 	MAX_ITEM,
 	// 1 - Weapon Upgradins, 2 - Rare Artifacts, 3 - Quest Item's, 4 - Useds Items, 5 - Crafted Item
 	// Sufix S - SettingsItem
@@ -423,7 +429,7 @@ public:
 	virtual int GetBonusEnchant(int ClientID, int ItemID, int Armor) = 0;
 	virtual void UpdateItemSettings(int ClientID, int ItemID) = 0;
 	virtual void GiveItem(int ClientID, int ItemID, int Count, int Settings = 0, int Enchant = 0) = 0;
-	virtual void RemItem(int ClientID, int ItemID, int Count, int Type) = 0;
+	virtual void RemItem(int ClientID, int ItemID, unsigned long long int Count, int Type) = 0;
 	virtual void SetItemPrice(int ClientID, int ItemID, int Level, int Price) = 0;
 	virtual int GetItemPrice(int ClientID, int ItemID, int Type) = 0;
 	virtual void Logout(int ClientID) = 0;
@@ -459,8 +465,8 @@ public:
 
 	virtual void InitMaterialID() = 0;
 	virtual void SaveMaterials(int ID) = 0;
-	virtual int GetMaterials(int ID) = 0;
-	virtual void SetMaterials(int ID, int Count) = 0;
+	virtual unsigned long long int GetMaterials(int ID) = 0;
+	virtual void SetMaterials(int ID, unsigned long long int Count) = 0;
 
 	virtual int SendMsg(CMsgPacker *pMsg, int Flags, int ClientID, int MapID) = 0;
 
@@ -619,7 +625,7 @@ public:
 	// ----- Инвентарь
 	virtual void InitInvID(int ClientID = -1, int ItemID = -1) = 0;
 	virtual void GetItem(int ItemID, int ClientID, int Count, int Settings = 0, int Enchant = 0) = 0;
-	virtual void RemItems(int ItemID, int ClientID, int Count, int Type) = 0;
+	virtual void RemItems(int ItemID, int ClientID, unsigned long long int Count, int Type) = 0;
 	virtual void ListInventory(int ClientID, int Type, int GetCount = false) = 0;
 	virtual int GetItemCountType(int ClientID, int Type) = 0;
 
@@ -708,7 +714,7 @@ public:
 	virtual void SendBroadcast_Localization(int To, int Priority, int LifeSpan, const char* pText, ...) = 0;
 	virtual void SendBroadcast_Localization_P(int To, int Priority, int LifeSpan, int Number, const char* pText, ...) = 0;
 	virtual void AddVote_Localization(int To, const char* aCmd, const char* pText, ...) = 0;
-	virtual void UseItem(int ClientID, int ItemID, int Count, int Type) = 0;
+	virtual void UseItem(int ClientID, int ItemID, unsigned long long int Count, int Type) = 0;
 	virtual void SendChatTarget(int To, const char* pText) = 0;
 	virtual void SendChatTarget_Localization(int To, int Category, const char* pText, ...) = 0;
 	virtual void SendChatTarget_Localization_P(int To, int Category, int Number, const char* pText, ...) = 0;

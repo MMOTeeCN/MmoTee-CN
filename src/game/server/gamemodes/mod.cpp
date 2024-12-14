@@ -18,7 +18,7 @@
 CGameControllerMOD::CGameControllerMOD(class CGameContext *pGameServer)
 : IGameController(pGameServer)
 {
-	m_pGameType = "MMOTee-fAzataz";
+	m_pGameType = "MMOTee-notCity";
 	m_pHeroFlag = 0;
 }
 
@@ -334,7 +334,7 @@ switch(PlayerClass)
 			return true;
 		case PLAYERCLASS_BERSERK:
 			return true;
-		case PLAYERCLASS_ASSASINS:
+		case PLAYERCLASS_ASSASSIN:
 			return true;
 		default:
 			return false;
